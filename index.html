@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ruleta del Cumple</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Luckiest+Guy&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="escena">
+    <!-- Ruleta -->
+    <section class="rueda-zona" aria-label="Ruleta">
+      <div class="rueda-marco" id="marco">
+        <div class="focos" id="focos" aria-hidden="true"></div>
+        <canvas id="rueda" aria-hidden="true"></canvas>
+        <button class="rueda-centro" id="centro" type="button">¡GIRÁ!</button>
+        <svg class="flecha" id="flecha" viewBox="0 0 100 142" aria-hidden="true">
+          <defs>
+            <linearGradient id="gradFlecha" x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0" stop-color="#ff5c7a"/>
+              <stop offset="1" stop-color="#c3102e"/>
+            </linearGradient>
+          </defs>
+          <path d="M50 138 L14 60 A40 40 0 1 1 86 60 Z" fill="url(#gradFlecha)" stroke="#ffe08a" stroke-width="6" stroke-linejoin="round"/>
+          <circle cx="50" cy="42" r="13" fill="#ffe08a"/>
+          <circle cx="46" cy="38" r="4" fill="#fff" opacity=".8"/>
+        </svg>
+      </div>
+    </section>
+
+    <!-- Panel lateral: título, QR para el celular y botón de respaldo -->
+    <aside class="panel">
+      <h1 class="titulo" id="titulo">¡Ruleta del Cumple!</h1>
+      <p class="subtitulo" id="subtitulo"></p>
+
+      <div class="qr-tarjeta">
+        <canvas id="qr" class="qr" aria-label="Código QR para abrir el control en el celular"></canvas>
+        <div class="qr-info">
+          <p class="qr-texto">📱 Escaneá<br>y girá desde<br>tu celu</p>
+          <p class="sala">Código <strong id="codigo">······</strong></p>
+          <p class="conexion" id="conexion" data-estado="conectando">
+            <span class="conexion-punto"></span>
+            <span id="conexionTexto">Conectando…</span>
+          </p>
+        </div>
+      </div>
+      <p class="aviso-local" id="avisoLocal" hidden>
+        Estás abriendo el archivo local: para usar el celular, abrí la página publicada en GitHub Pages.
+      </p>
+
+      <button class="boton-girar" id="botonGirar" type="button">¡GIRAR RULETA!</button>
+      <p class="ayuda">o presioná <kbd>ESPACIO</kbd> · <kbd>F</kbd> pantalla completa · <kbd>M</kbd> sonido</p>
+    </aside>
+  </main>
+
+  <!-- Tarjeta de resultado -->
+  <div class="resultado" id="resultado" hidden>
+    <div class="resultado-rayos" aria-hidden="true"></div>
+    <div class="tarjeta" id="tarjeta" role="dialog" aria-live="assertive" aria-labelledby="resNumero">
+      <p class="tarjeta-etiqueta" id="resEtiqueta">¡Salió!</p>
+      <p class="tarjeta-numero" id="resNumero">0</p>
+      <p class="tarjeta-unidad" id="resUnidad">PUNTOS</p>
+      <p class="tarjeta-descripcion" id="resDescripcion"></p>
+      <button class="boton-continuar" id="botonContinuar" type="button">Continuar</button>
+    </div>
+  </div>
+
+  <!-- Pantalla de inicio: el clic habilita el sonido y la pantalla completa -->
+  <div class="inicio" id="inicio">
+    <div class="inicio-caja">
+      <p class="inicio-emoji" aria-hidden="true">🎉</p>
+      <h2 class="inicio-titulo" id="inicioTitulo">¡Ruleta del Cumple!</h2>
+      <p class="inicio-accion">Hacé clic o presioná cualquier tecla para empezar</p>
+      <p class="inicio-nota">Esto activa el sonido y la pantalla completa</p>
+    </div>
+  </div>
+
+  <p class="mudo" id="mudo" hidden>🔇 Sonido apagado (M)</p>
+  <canvas class="confeti" id="confeti" aria-hidden="true"></canvas>
+
+  <!-- PeerJS: conexión TV ↔ celular. QR: genera el código para escanear. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
