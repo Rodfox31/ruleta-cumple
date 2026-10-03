@@ -1,37 +1,46 @@
 # 🎡 Ruleta del Cumple
 
-Una ruleta de puntos (del 0 al 10) para proyectar en la tele durante una fiesta. Se dispara desde el celular escaneando un QR.
+Una ruleta de puntos (del 0 al 10) para proyectar en la tele durante una fiesta. Se controla desde el celular escaneando un QR.
 
-- **TV:** `index.html`, la ruleta.
-- **Celular:** `control.html`, el botón gigante. Se abre solo al escanear el QR de la TV.
+- **TV:** `index.html`, la ruleta con el historial de tiradas.
+- **Celular:** `control.html`, los botones **¡GIRAR!**, **Continuar** y **Salir**. Se abre solo al escanear el QR de la TV.
 
-## Cómo usarla en la fiesta
+## Cómo funciona
 
-1. En la laptop conectada a la tele, abrí la página publicada y hacé **un clic** (eso activa el sonido y la pantalla completa).
-2. Escaneá el QR con el celular: se abre el control con el botón **¡GIRAR!**.
-3. Al terminar el giro aparece el resultado en la TV y en el celular. **Continuar** cierra la tarjeta para volver a girar.
+La pantalla de la TV tiene tres estados:
 
-Se pueden conectar varios celulares a la vez. La laptop y los celulares necesitan internet; conviene que estén en el mismo Wi-Fi.
+1. **QR:** espera a que alguien escanee el código. Cuando un celular abre el control, pasa sola al estado 2.
+2. **Ruleta:** la rueda grande y, a la derecha, el historial de lo que fue saliendo. El giro se hace desde el celular.
+3. **Resultado:** la tarjeta con los puntos y el festejo. Se cierra con **Continuar** en el celular.
+
+Si el celular toca **Salir** o cierra la página, la TV vuelve al QR. Controla un celular a la vez: si otro escanea mientras alguien juega, le aparece "La ruleta está ocupada".
+
+## Antes de empezar
+
+1. En la laptop conectada a la tele, abrí la página publicada y hacé **un clic** en la pantalla. Eso activa el sonido (los navegadores no dejan sonar nada sin un clic) y pone la pantalla completa.
+2. La laptop y los celulares necesitan internet; conviene que estén en el mismo Wi-Fi.
 
 ### Teclas en la TV
 
 | Tecla | Acción |
 |---|---|
-| `ESPACIO` / `Enter` / flechas / `PgUp` `PgDn` | Girar, o cerrar el resultado (sirve con un presentador inalámbrico) |
 | `F` | Pantalla completa |
 | `M` | Silenciar |
+| `R` | Borrar el historial (pide confirmación) |
 
 ## Personalizar
 
 Todo lo editable está arriba de todo en `script.js`, marcado con ✏️:
 
-- `TITULO` y `SUBTITULO`: los textos del encabezado.
-- `SECTORES`: los números, colores, frases y **chances** de cada tajada. El tamaño de cada tajada es proporcional a sus chances, así que lo que ves es la probabilidad real.
+- `TITULO`: el título de la TV y del celular.
+- `SECTORES`: los números, sus frases, colores y **cuántas tajadas** tiene cada uno. Todas las tajadas son del mismo tamaño: más tajadas = más chances. Hoy son 24 (tres 0, tres 1, tres 2, tres 3; dos de cada número del 4 al 8; un 9 y un 10). El programa reparte las tajadas solo, para que los números iguales queden separados.
 - `GIRO`: la duración y las vueltas.
 - `VOLUMEN`: el volumen general.
 
+El historial queda guardado en el navegador de la TV: si se recarga la página, no se pierde.
+
 ## Cómo funciona la conexión
 
-No hay servidor propio: la TV y el celular se conectan directo por WebRTC usando [PeerJS](https://peerjs.com/). El servicio gratuito de PeerJS solo se usa para que se encuentren. El código de la sala queda guardado en el navegador de la TV, así que, si se recarga la página, los celulares se reconectan solos.
+No hay servidor propio: la TV y el celular se conectan directo por WebRTC usando [PeerJS](https://peerjs.com/). El servicio gratuito de PeerJS solo se usa para que se encuentren. El celular manda una señal cada 2 segundos: si deja de llegar (por ejemplo, porque se cerró la página sin avisar), la TV vuelve al QR a los pocos segundos. Si el celular se bloquea o cambia de app, la TV espera 15 segundos; cuando vuelve, se reconecta solo.
 
-Si el celular no conecta, revisá que la TV muestre "Listo: esperando celulares". También podés escribir a mano el código que aparece abajo del QR.
+Si el celular no conecta, revisá que la TV muestre "Listo: esperando un celular". También podés escribir a mano el código que aparece abajo del QR.

@@ -19,26 +19,34 @@
     </p>
   </header>
 
-  <!-- Control: el "modal" con el botón gigante -->
+  <!-- Control: girar y salir -->
   <main class="modal" id="vistaControl" hidden>
     <p class="indicacion" id="indicacion">Apretá para girar la ruleta de la TV</p>
     <button class="boton-girar" id="botonGirar" type="button" disabled>
       <span class="boton-girar-texto" id="botonTexto">ESPERANDO…</span>
     </button>
-    <p class="sala">Sala <strong id="codigoActual"></strong> · <button class="enlace" id="cambiarSala" type="button">cambiar</button></p>
+    <button class="boton-salir" id="botonSalir" type="button">Salir</button>
   </main>
 
-  <!-- Si se abre sin código (o se quiere cambiar) -->
+  <!-- Avisos: saliste / ruleta ocupada -->
+  <main class="modal" id="vistaAviso" hidden>
+    <p class="aviso-emoji" id="avisoEmoji" aria-hidden="true">👋</p>
+    <h2 class="aviso-titulo" id="avisoTitulo">Saliste del control</h2>
+    <p class="aviso-texto" id="avisoTexto">La tele volvió a mostrar el QR.</p>
+    <button class="boton-principal" id="avisoBoton" type="button">Volver a conectar</button>
+  </main>
+
+  <!-- Si se abre sin código -->
   <main class="modal" id="vistaCodigo" hidden>
     <p class="indicacion">Escribí el código que aparece en la TV</p>
     <form class="form-codigo" id="formCodigo" autocomplete="off">
       <input class="input-codigo" id="inputCodigo" name="codigo" inputmode="text" autocapitalize="characters"
              maxlength="6" placeholder="ABC123" aria-label="Código de la sala" required>
-      <button class="boton-conectar" type="submit">Conectar</button>
+      <button class="boton-principal" type="submit">Conectar</button>
     </form>
   </main>
 
-  <!-- Resultado (espejo de la tarjeta de la TV) -->
+  <!-- Resultado: el botón Continuar cierra la tarjeta en la TV -->
   <div class="resultado" id="resultado" hidden>
     <div class="tarjeta" id="tarjeta" role="dialog" aria-live="assertive" aria-labelledby="resNumero">
       <p class="tarjeta-etiqueta" id="resEtiqueta">¡Salió!</p>
@@ -46,6 +54,7 @@
       <p class="tarjeta-unidad" id="resUnidad">PUNTOS</p>
       <p class="tarjeta-descripcion" id="resDescripcion"></p>
       <button class="boton-continuar" id="botonContinuar" type="button">Continuar</button>
+      <button class="boton-salir boton-salir--tarjeta" id="botonSalirResultado" type="button">Salir</button>
     </div>
   </div>
 

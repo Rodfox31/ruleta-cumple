@@ -1,7 +1,7 @@
 /* =========================================================
    RULETA DEL CUMPLE — control desde el celular
    Se conecta a la TV por PeerJS usando el código de la sala
-   (control.html?sala=<código>) y manda "girar" / "continuar".
+   (control.html?sala=<código>) y manda "girar", "continuar" y "salir".
    ========================================================= */
 'use strict';
 
@@ -14,12 +14,16 @@ const el = {
   estado: $('#estado'),
   estadoTexto: $('#estadoTexto'),
   vistaControl: $('#vistaControl'),
+  vistaAviso: $('#vistaAviso'),
   vistaCodigo: $('#vistaCodigo'),
   indicacion: $('#indicacion'),
   botonGirar: $('#botonGirar'),
   botonTexto: $('#botonTexto'),
-  codigoActual: $('#codigoActual'),
-  cambiarSala: $('#cambiarSala'),
+  botonSalir: $('#botonSalir'),
+  avisoEmoji: $('#avisoEmoji'),
+  avisoTitulo: $('#avisoTitulo'),
+  avisoTexto: $('#avisoTexto'),
+  avisoBoton: $('#avisoBoton'),
   formCodigo: $('#formCodigo'),
   inputCodigo: $('#inputCodigo'),
   resultado: $('#resultado'),
@@ -29,14 +33,32 @@ const el = {
   resUnidad: $('#resUnidad'),
   resDescripcion: $('#resDescripcion'),
   botonContinuar: $('#botonContinuar'),
+  botonSalirResultado: $('#botonSalirResultado'),
 };
 
 const limpiarCodigo = (texto) => (texto || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6);
 
+/** Id de esta pestaña: si se recarga la página, la TV lo reconoce y le devuelve el control. */
+function idCliente() {
+  const nuevo = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  try {
+    let id = sessionStorage.getItem('ruleta.cliente');
+    if (!id) {
+      id = nuevo();
+      sessionStorage.setItem('ruleta.cliente', id);
+    }
+    return id;
+  } catch {
+    return nuevo();
+  }
+}
+
 let codigo = limpiarCodigo(new URLSearchParams(location.search).get('sala'));
+const cliente = idCliente();
 let peer = null;
 let conn = null;
 let estadoRuleta = 'desconectado'; // 'desconectado' | 'listo' | 'girando' | 'resultado'
+let detenido = false;              // después de "Salir" o de "ocupada" no se reconecta solo
 let ultimoMensaje = 0;
 let timerPing = null;
 let timerReintento = null;
@@ -47,6 +69,37 @@ let timerApertura = null;
 function mostrarConexion(estado, texto) {
   el.estado.dataset.estado = estado;
   el.estadoTexto.textContent = texto;
+}
+
+function mostrarVista(nombre) {
+  el.vistaControl.hidden = nombre !== 'control';
+  el.vistaAviso.hidden = nombre !== 'aviso';
+  el.vistaCodigo.hidden = nombre !== 'codigo';
+  if (nombre !== 'control') el.resultado.hidden = true;
+}
+
+const AVISOS = {
+  afuera: {
+    emoji: '👋',
+    titulo: 'Saliste del control',
+    texto: 'La tele volvió a mostrar el QR para que otro pueda jugar.',
+    boton: 'Volver a conectar',
+  },
+  ocupado: {
+    emoji: '✋',
+    titulo: 'La ruleta está ocupada',
+    texto: 'Otro celular la está controlando. Cuando salga, vas a poder entrar vos.',
+    boton: 'Reintentar',
+  },
+};
+
+function mostrarAviso(tipo) {
+  const a = AVISOS[tipo];
+  el.avisoEmoji.textContent = a.emoji;
+  el.avisoTitulo.textContent = a.titulo;
+  el.avisoTexto.textContent = a.texto;
+  el.avisoBoton.textContent = a.boton;
+  mostrarVista('aviso');
 }
 
 function vibrar(patron) {
@@ -86,20 +139,6 @@ function aplicarEstado(nuevo, resultado) {
   }
 }
 
-function mostrarVistaCodigo() {
-  el.vistaControl.hidden = true;
-  el.vistaCodigo.hidden = false;
-  el.inputCodigo.value = codigo.toUpperCase();
-  el.inputCodigo.focus();
-  mostrarConexion('error', 'Falta el código de la sala');
-}
-
-function mostrarVistaControl() {
-  el.vistaCodigo.hidden = true;
-  el.vistaControl.hidden = false;
-  el.codigoActual.textContent = codigo.toUpperCase();
-}
-
 /* ---------- Conexión ---------- */
 
 function programarReintento(ms) {
@@ -109,7 +148,7 @@ function programarReintento(ms) {
 
 function conectar() {
   clearTimeout(timerReintento);
-  if (!codigo) return;
+  if (!codigo || detenido) return;
   if (typeof Peer === 'undefined') {
     mostrarConexion('error', 'Sin internet. Recargá la página.');
     return;
@@ -134,19 +173,18 @@ function crearPeer() {
   peer = p;
 
   p.on('open', () => {
-    if (p === peer) abrirConexion();
+    if (p === peer && !detenido) abrirConexion();
   });
 
   p.on('error', (err) => {
-    if (p !== peer) return;
+    if (p !== peer || detenido) return;
     console.warn('[control] PeerJS:', err.type, err);
     if (err.type === 'peer-unavailable') {
       mostrarConexion('error', 'No encuentro la ruleta. ¿Está abierta en la TV?');
-      programarReintento(3000);
     } else {
       mostrarConexion('error', 'Problema de conexión. Reintentando…');
-      programarReintento(3000);
     }
+    programarReintento(3000);
   });
 }
 
@@ -159,8 +197,7 @@ function abrirConexion() {
   clearTimeout(timerApertura);
   timerApertura = setTimeout(() => {
     if (conn === c && !c.open) {
-      conn = null;
-      try { c.close(); } catch { /* nada */ }
+      cerrarConexion();
       mostrarConexion('error', 'La ruleta no responde. Reintentando…');
       programarReintento(1000);
     }
@@ -172,7 +209,7 @@ function abrirConexion() {
     ultimoMensaje = Date.now();
     mostrarConexion('ok', 'Conectado a la ruleta');
     iniciarPing();
-    enviar({ tipo: 'hola' });
+    enviar({ tipo: 'hola', cliente });
   });
 
   c.on('data', (datos) => {
@@ -185,6 +222,7 @@ function abrirConexion() {
   c.on('error', () => { if (conn === c) conexionPerdida(); });
 }
 
+/** Cierra la conexión actual sin disparar la reconexión automática. */
 function cerrarConexion() {
   const c = conn;
   conn = null;
@@ -196,6 +234,7 @@ function cerrarConexion() {
 
 function conexionPerdida() {
   cerrarConexion();
+  if (detenido) return;
   aplicarEstado('desconectado');
   mostrarConexion('error', 'Se cortó. Reconectando…');
   programarReintento(1500);
@@ -205,12 +244,12 @@ function iniciarPing() {
   detenerPing();
   timerPing = setInterval(() => {
     if (!conn || !conn.open) return;
-    if (Date.now() - ultimoMensaje > 12000) {
+    if (Date.now() - ultimoMensaje > 8000) {
       conexionPerdida();
       return;
     }
     enviar({ tipo: 'ping' });
-  }, 4000);
+  }, 2000);
 }
 
 function detenerPing() {
@@ -231,12 +270,36 @@ function enviar(mensaje) {
 }
 
 function recibir(datos) {
-  if (!datos || datos.tipo !== 'estado') return;
+  if (!datos || typeof datos !== 'object') return;
+  if (datos.tipo === 'ocupado') {
+    detenido = true;
+    cerrarConexion();
+    aplicarEstado('desconectado');
+    mostrarConexion('error', 'Ruleta ocupada');
+    mostrarAviso('ocupado');
+    return;
+  }
+  if (datos.tipo !== 'estado') return;
   if (datos.titulo) {
     el.titulo.textContent = datos.titulo;
     document.title = `Control · ${datos.titulo.replace(/[¡!]/g, '').trim()}`;
   }
   aplicarEstado(datos.estado, datos.resultado);
+}
+
+/** "Salir": la TV vuelve al QR y este celular deja de reconectarse solo. */
+function salir() {
+  detenido = true;
+  clearTimeout(timerReintento);
+  enviar({ tipo: 'salir' });
+  const c = conn;
+  conn = null;
+  detenerPing();
+  setTimeout(() => { try { if (c) c.close(); } catch { /* nada */ } }, 400); // deja salir el mensaje
+  aplicarEstado('desconectado');
+  mostrarConexion('error', 'Desconectado');
+  mostrarAviso('afuera');
+  vibrar(20);
 }
 
 /* ---------- Pantalla siempre encendida ---------- */
@@ -267,11 +330,15 @@ el.botonContinuar.addEventListener('click', () => {
   }
 });
 
-el.cambiarSala.addEventListener('click', () => {
-  cerrarConexion();
-  clearTimeout(timerReintento);
+el.botonSalir.addEventListener('click', salir);
+el.botonSalirResultado.addEventListener('click', salir);
+
+el.avisoBoton.addEventListener('click', () => {
+  detenido = false;
+  mostrarVista('control');
   aplicarEstado('desconectado');
-  mostrarVistaCodigo();
+  conectar();
+  mantenerPantallaEncendida();
 });
 
 el.formCodigo.addEventListener('submit', (e) => {
@@ -285,16 +352,41 @@ el.formCodigo.addEventListener('submit', (e) => {
   const url = new URL(location.href);
   url.searchParams.set('sala', codigo);
   history.replaceState(null, '', url);
-  mostrarVistaControl();
+  mostrarVista('control');
   conectar();
   mantenerPantallaEncendida();
 });
 
-// Al volver a la pestaña (o desbloquear el celu), se reconecta si hace falta
+// Bloqueo de pantalla o cambio de app: se avisa a la TV para que espere un poco más.
+// Al volver, se reconecta si hace falta.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || !codigo) return;
+  if (document.visibilityState === 'hidden') {
+    enviar({ tipo: 'pausa' });
+    return;
+  }
+  if (!codigo || detenido) return;
   mantenerPantallaEncendida();
-  if (!conn || !conn.open || Date.now() - ultimoMensaje > 12000) {
+  if (conn && conn.open && Date.now() - ultimoMensaje < 8000) {
+    enviar({ tipo: 'ping' });
+  } else {
+    cerrarConexion();
+    conectar();
+  }
+});
+
+// Cerrar la pestaña o salir de la página cuenta como "Salir": se avisa y se corta la conexión.
+// Si el aviso no llega a salir, la TV igual se da cuenta a los pocos segundos porque dejan de llegar los "ping".
+window.addEventListener('pagehide', () => {
+  enviar({ tipo: 'salir' });
+  const c = conn;
+  conn = null;
+  detenerPing();
+  try { if (c) c.close(); } catch { /* nada */ }
+});
+
+// Si el navegador restaura la página desde su caché (botón "atrás"), se vuelve a conectar
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && codigo && !detenido) {
     cerrarConexion();
     conectar();
   }
@@ -304,9 +396,11 @@ document.addEventListener('visibilitychange', () => {
 
 aplicarEstado('desconectado');
 if (codigo.length === 6) {
-  mostrarVistaControl();
+  mostrarVista('control');
   conectar();
   mantenerPantallaEncendida();
 } else {
-  mostrarVistaCodigo();
+  mostrarVista('codigo');
+  mostrarConexion('error', 'Falta el código de la sala');
+  el.inputCodigo.focus();
 }

@@ -10,13 +10,13 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- ESTADO 2: la ruleta con el historial a la derecha -->
   <main class="escena">
-    <!-- Ruleta -->
     <section class="rueda-zona" aria-label="Ruleta">
       <div class="rueda-marco" id="marco">
         <div class="focos" id="focos" aria-hidden="true"></div>
         <canvas id="rueda" aria-hidden="true"></canvas>
-        <button class="rueda-centro" id="centro" type="button">¡GIRÁ!</button>
+        <div class="rueda-centro" aria-hidden="true">🎂</div>
         <svg class="flecha" id="flecha" viewBox="0 0 100 142" aria-hidden="true">
           <defs>
             <linearGradient id="gradFlecha" x1="0" x2="1" y1="0" y2="0">
@@ -31,32 +31,44 @@
       </div>
     </section>
 
-    <!-- Panel lateral: título, QR para el celular y botón de respaldo -->
     <aside class="panel">
       <h1 class="titulo" id="titulo">¡Ruleta del Cumple!</h1>
-      <p class="subtitulo" id="subtitulo"></p>
-
-      <div class="qr-tarjeta">
-        <canvas id="qr" class="qr" aria-label="Código QR para abrir el control en el celular"></canvas>
-        <div class="qr-info">
-          <p class="qr-texto">📱 Escaneá<br>y girá desde<br>tu celu</p>
-          <p class="sala">Código <strong id="codigo">······</strong></p>
-          <p class="conexion" id="conexion" data-estado="conectando">
-            <span class="conexion-punto"></span>
-            <span id="conexionTexto">Conectando…</span>
-          </p>
-        </div>
-      </div>
-      <p class="aviso-local" id="avisoLocal" hidden>
-        Estás abriendo el archivo local: para usar el celular, abrí la página publicada en GitHub Pages.
-      </p>
-
-      <button class="boton-girar" id="botonGirar" type="button">¡GIRAR RULETA!</button>
-      <p class="ayuda">o presioná <kbd>ESPACIO</kbd> · <kbd>F</kbd> pantalla completa · <kbd>M</kbd> sonido</p>
+      <section class="historial" aria-labelledby="historialTitulo">
+        <header class="historial-cabecera">
+          <h2 class="historial-titulo" id="historialTitulo">Historial</h2>
+          <span class="historial-total" id="historialTotal">0 tiradas</span>
+        </header>
+        <ol class="historial-lista" id="historialLista"></ol>
+        <p class="historial-vacio" id="historialVacio">Todavía no salió nada.<br>¡A girar!</p>
+      </section>
+      <p class="control-activo"><span class="control-punto"></span>Controlado desde el celular</p>
     </aside>
   </main>
 
-  <!-- Tarjeta de resultado -->
+  <!-- ESTADO 1: QR de espera. Pasa al estado 2 cuando un celular abre el control. -->
+  <div class="pantalla-qr" id="pantallaQR">
+    <div class="qr-texto">
+      <h1 class="qr-titulo" id="qrTitulo">¡Ruleta del Cumple!</h1>
+      <ol class="qr-pasos">
+        <li><span>1</span>Escaneá el código con el celu</li>
+        <li><span>2</span>Apretá <strong>¡GIRAR!</strong></li>
+        <li><span>3</span>¡Mirá cuántos puntos sacás!</li>
+      </ol>
+      <p class="conexion" id="conexion" data-estado="conectando">
+        <span class="conexion-punto"></span>
+        <span id="conexionTexto">Conectando…</span>
+      </p>
+      <p class="aviso-local" id="avisoLocal" hidden>
+        Estás abriendo el archivo local: para usar el celular, abrí la página publicada en GitHub Pages.
+      </p>
+    </div>
+    <div class="qr-tarjeta">
+      <canvas id="qr" class="qr" aria-label="Código QR para abrir el control en el celular"></canvas>
+      <p class="qr-codigo">Código <strong id="codigo">······</strong></p>
+    </div>
+  </div>
+
+  <!-- ESTADO 3: resultado (se cierra con "Continuar" desde el celular) -->
   <div class="resultado" id="resultado" hidden>
     <div class="resultado-rayos" aria-hidden="true"></div>
     <div class="tarjeta" id="tarjeta" role="dialog" aria-live="assertive" aria-labelledby="resNumero">
@@ -64,21 +76,12 @@
       <p class="tarjeta-numero" id="resNumero">0</p>
       <p class="tarjeta-unidad" id="resUnidad">PUNTOS</p>
       <p class="tarjeta-descripcion" id="resDescripcion"></p>
-      <button class="boton-continuar" id="botonContinuar" type="button">Continuar</button>
+      <p class="tarjeta-pista">📱 Tocá <strong>CONTINUAR</strong> en el celular</p>
     </div>
   </div>
 
-  <!-- Pantalla de inicio: el clic habilita el sonido y la pantalla completa -->
-  <div class="inicio" id="inicio">
-    <div class="inicio-caja">
-      <p class="inicio-emoji" aria-hidden="true">🎉</p>
-      <h2 class="inicio-titulo" id="inicioTitulo">¡Ruleta del Cumple!</h2>
-      <p class="inicio-accion">Hacé clic o presioná cualquier tecla para empezar</p>
-      <p class="inicio-nota">Esto activa el sonido y la pantalla completa</p>
-    </div>
-  </div>
-
-  <p class="mudo" id="mudo" hidden>🔇 Sonido apagado (M)</p>
+  <p class="aviso aviso-sonido" id="avisoSonido">🔈 Hacé clic en la pantalla para activar el sonido</p>
+  <p class="aviso aviso-mudo" id="mudo" hidden>🔇 Sonido apagado (M)</p>
   <canvas class="confeti" id="confeti" aria-hidden="true"></canvas>
 
   <!-- PeerJS: conexión TV ↔ celular. QR: genera el código para escanear. -->

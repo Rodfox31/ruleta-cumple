@@ -1,7 +1,11 @@
 /* =========================================================
    RULETA DEL CUMPLE — pantalla de la TV
-   Dibujo en Canvas, física de giro, sonidos con Web Audio API,
-   confeti y conexión con el celular (PeerJS).
+
+   Tres estados:
+     1. QR       → espera a que un celular abra el control.
+     2. Ruleta   → la rueda y el historial; se gira desde el celular.
+     3. Resultado→ tarjeta con los puntos; se cierra con "Continuar" en el celular.
+   Si el celular toca "Salir" o cierra la página, vuelve al estado 1.
    ========================================================= */
 'use strict';
 
@@ -11,38 +15,40 @@
 
 // Título que se ve en la TV y en el celular.
 const TITULO = '¡Ruleta del Cumple!';
-// Línea chica debajo del título (dejala vacía '' para ocultarla).
-const SUBTITULO = 'Cada tirada suma puntos';
 
 // Palabra que acompaña al número en la tarjeta del resultado.
 const UNIDAD = { singular: 'PUNTO', plural: 'PUNTOS' };
 
 /*
   ✏️ SECTORES DE LA RULETA
-  - El orden del array es el orden en la rueda, en sentido horario.
-    Está mezclado a propósito: el 10 (la tajada más finita) queda
-    entre el 0 y el 1, que son las más grandes. ¡Mucho "casi"!
+  Todas las tajadas son del mismo tamaño; lo que cambia es cuántas veces
+  aparece cada número en la rueda. Más tajadas = más chances.
   - id:          identificador único (no se muestra).
   - texto:       lo que se lee en la rueda y en grande en la tarjeta.
-  - color:       color de la tajada (hex o hsl).
+  - cantidad:    cuántas tajadas tiene ese número en la rueda.
+  - color:       color de sus tajadas (hex o hsl). Los colores están elegidos
+                 para que dos tajadas vecinas nunca se parezcan; si cambiás
+                 las cantidades, el orden cambia y quizás convenga revisarlos.
   - descripcion: frase que aparece debajo del número en la tarjeta.
-  - chances:     peso del sector. El tamaño de la tajada es proporcional:
-                 el 0 (11 chances) ocupa 11 veces más que el 10 (1 chance).
-                 Total actual: 66 → el 0 sale 1 de cada 6 veces y el 10, 1 de cada 66.
   - festejo:     'triste' | 'normal' | 'jackpot' (cambia el sonido y el confeti).
+
+  Con estos valores hay 24 tajadas: el 0, 1, 2 y 3 salen 3 de cada 24 veces;
+  del 4 al 8, 2 de cada 24; el 9 y el 10, 1 de cada 24.
+  El programa reparte las tajadas solo, para que los números iguales queden
+  separados.
 */
 const SECTORES = [
-  { id: 0,  texto: '0',  color: '#7B2FF7', chances: 11, festejo: 'triste',  descripcion: '¡Uy! Esta vez no sumás nada.' },
-  { id: 10, texto: '10', color: '#FFB800', chances: 1,  festejo: 'jackpot', descripcion: '¡El premio mayor de la noche!' },
-  { id: 1,  texto: '1',  color: '#FF2D87', chances: 10, festejo: 'normal',  descripcion: 'Algo es algo… ¡un puntito!' },
-  { id: 6,  texto: '6',  color: '#00A6E8', chances: 5,  festejo: 'normal',  descripcion: '¡Muy buena tirada!' },
-  { id: 3,  texto: '3',  color: '#FF7B00', chances: 8,  festejo: 'normal',  descripcion: 'Suma, y suma bien.' },
-  { id: 8,  texto: '8',  color: '#2B50FF', chances: 3,  festejo: 'normal',  descripcion: '¡Uf! Eso fue una tirada de lujo.' },
-  { id: 2,  texto: '2',  color: '#12B76A', chances: 9,  festejo: 'normal',  descripcion: 'Poquito, pero cuenta.' },
-  { id: 7,  texto: '7',  color: '#E3243B', chances: 4,  festejo: 'normal',  descripcion: '¡El número de la suerte!' },
-  { id: 4,  texto: '4',  color: '#00B3A4', chances: 7,  festejo: 'normal',  descripcion: 'Ni mucho ni poco: ¡bien ahí!' },
-  { id: 9,  texto: '9',  color: '#C13BF0', chances: 2,  festejo: 'normal',  descripcion: '¡Casi casi el máximo!' },
-  { id: 5,  texto: '5',  color: '#6FB800', chances: 6,  festejo: 'normal',  descripcion: '¡Mitad de tabla, nada mal!' },
+  { id: 0,  texto: '0',  cantidad: 3, color: '#7B2FF7', festejo: 'triste',  descripcion: '¡Uy! Esta vez no sumás nada.' },
+  { id: 1,  texto: '1',  cantidad: 3, color: '#FF2D87', festejo: 'normal',  descripcion: 'Algo es algo… ¡un puntito!' },
+  { id: 2,  texto: '2',  cantidad: 3, color: '#C13BF0', festejo: 'normal',  descripcion: 'Poquito, pero cuenta.' },
+  { id: 3,  texto: '3',  cantidad: 3, color: '#12B76A', festejo: 'normal',  descripcion: 'Suma, y suma bien.' },
+  { id: 4,  texto: '4',  cantidad: 2, color: '#00A6E8', festejo: 'normal',  descripcion: 'Ni mucho ni poco: ¡bien ahí!' },
+  { id: 5,  texto: '5',  cantidad: 2, color: '#00B3A4', festejo: 'normal',  descripcion: '¡Mitad de tabla, nada mal!' },
+  { id: 6,  texto: '6',  cantidad: 2, color: '#7CB800', festejo: 'normal',  descripcion: '¡Muy buena tirada!' },
+  { id: 7,  texto: '7',  cantidad: 2, color: '#E3243B', festejo: 'normal',  descripcion: '¡El número de la suerte!' },
+  { id: 8,  texto: '8',  cantidad: 2, color: '#FF7B00', festejo: 'normal',  descripcion: '¡Uf! Eso fue una tirada de lujo.' },
+  { id: 9,  texto: '9',  cantidad: 1, color: '#2B50FF', festejo: 'normal',  descripcion: '¡Casi casi el máximo!' },
+  { id: 10, texto: '10', cantidad: 1, color: '#FFB800', festejo: 'jackpot', descripcion: '¡El premio mayor de la noche!' },
 ];
 
 // Duración del giro (milisegundos) y vueltas completas antes de frenar.
@@ -61,25 +67,25 @@ const el = {
   marco: $('#marco'),
   focos: $('#focos'),
   rueda: $('#rueda'),
-  centro: $('#centro'),
   flecha: $('#flecha'),
   titulo: $('#titulo'),
-  subtitulo: $('#subtitulo'),
+  historialLista: $('#historialLista'),
+  historialTotal: $('#historialTotal'),
+  historialVacio: $('#historialVacio'),
+  pantallaQR: $('#pantallaQR'),
+  qrTitulo: $('#qrTitulo'),
   qr: $('#qr'),
   codigo: $('#codigo'),
   conexion: $('#conexion'),
   conexionTexto: $('#conexionTexto'),
   avisoLocal: $('#avisoLocal'),
-  botonGirar: $('#botonGirar'),
   resultado: $('#resultado'),
   tarjeta: $('#tarjeta'),
   resEtiqueta: $('#resEtiqueta'),
   resNumero: $('#resNumero'),
   resUnidad: $('#resUnidad'),
   resDescripcion: $('#resDescripcion'),
-  botonContinuar: $('#botonContinuar'),
-  inicio: $('#inicio'),
-  inicioTitulo: $('#inicioTitulo'),
+  avisoSonido: $('#avisoSonido'),
   mudo: $('#mudo'),
   confeti: $('#confeti'),
 };
@@ -95,31 +101,46 @@ const normalizar = (grados) => ((grados % 360) + 360) % 360;
 const aRad = (grados) => (grados * Math.PI) / 180;
 
 /* =========================================================
-   Geometría: cada sector ocupa un ángulo proporcional a sus chances.
-   Los ángulos de la rueda se miden en grados, en sentido horario,
-   desde las 12 en punto.
+   Armado de la rueda: todas las tajadas iguales, con los números
+   repetidos repartidos para que no queden pegados.
+   Los ángulos se miden en grados, en sentido horario, desde las 12.
    ========================================================= */
 
-const TOTAL_CHANCES = SECTORES.reduce((suma, s) => suma + s.chances, 0);
-
-const GEOMETRIA = (() => {
-  let acumulado = 0;
-  return SECTORES.map((s) => {
-    const ancho = (s.chances / TOTAL_CHANCES) * 360;
-    const g = { ...s, inicio: acumulado, ancho };
-    acumulado += ancho;
-    return g;
+function distribuir(sectores) {
+  // Cada copia de un número tiene una posición ideal pareja alrededor de la rueda;
+  // el desfase (proporción áurea) evita que todos los números arranquen juntos.
+  const fichas = [];
+  sectores.forEach((s, i) => {
+    const desfase = (i * 0.618034) % 1;
+    for (let k = 0; k < s.cantidad; k++) fichas.push({ s, pos: (k + desfase) / s.cantidad });
   });
+  fichas.sort((a, b) => a.pos - b.pos || a.s.id - b.s.id);
+  const orden = fichas.map((f) => f.s);
+
+  // Si quedaron dos iguales pegados, se intercambia uno con otra tajada que no genere otro choque
+  const n = orden.length;
+  const id = (i) => orden[((i % n) + n) % n].id;
+  for (let i = 0; i < n; i++) {
+    const sig = (i + 1) % n;
+    if (id(i) !== id(sig)) continue;
+    for (let j = 2; j < n; j++) {
+      const k = (i + j) % n;
+      if (id(k) === id(i) || id(k) === id(sig + 1) || id(sig) === id(k - 1) || id(sig) === id(k + 1)) continue;
+      [orden[sig], orden[k]] = [orden[k], orden[sig]];
+      break;
+    }
+  }
+  return orden;
+}
+
+const TAJADAS = (() => {
+  const orden = distribuir(SECTORES);
+  const ancho = 360 / orden.length;
+  return orden.map((s, i) => ({ ...s, inicio: i * ancho, ancho }));
 })();
 
-/** Índice del sector que contiene un ángulo de la rueda. */
-function indiceEn(anguloRueda) {
-  const a = normalizar(anguloRueda);
-  for (let i = 0; i < GEOMETRIA.length; i++) {
-    if (a < GEOMETRIA[i].inicio + GEOMETRIA[i].ancho) return i;
-  }
-  return GEOMETRIA.length - 1;
-}
+/** Índice de la tajada que contiene un ángulo de la rueda. */
+const indiceEn = (anguloRueda) => Math.min(TAJADAS.length - 1, Math.floor(normalizar(anguloRueda) / TAJADAS[0].ancho));
 
 /**
  * Con la rueda rotada `rotacion` grados (horario), qué ángulo de la rueda
@@ -148,12 +169,12 @@ function dibujarRueda() {
   const r = lado / 2;
 
   // Tajadas
-  for (const g of GEOMETRIA) {
+  for (const t of TAJADAS) {
     ctx.beginPath();
     ctx.moveTo(c, c);
-    ctx.arc(c, c, r, aRad(g.inicio - 90), aRad(g.inicio + g.ancho - 90));
+    ctx.arc(c, c, r, aRad(t.inicio - 90), aRad(t.inicio + t.ancho - 90));
     ctx.closePath();
-    ctx.fillStyle = g.color;
+    ctx.fillStyle = t.color;
     ctx.fill();
   }
 
@@ -170,9 +191,9 @@ function dibujarRueda() {
 
   // Líneas divisorias
   ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-  ctx.lineWidth = Math.max(2, r * 0.012);
-  for (const g of GEOMETRIA) {
-    const a = aRad(g.inicio - 90);
+  ctx.lineWidth = Math.max(2, r * 0.01);
+  for (const t of TAJADAS) {
+    const a = aRad(t.inicio - 90);
     ctx.beginPath();
     ctx.moveTo(c, c);
     ctx.lineTo(c + Math.cos(a) * r, c + Math.sin(a) * r);
@@ -180,14 +201,14 @@ function dibujarRueda() {
   }
 
   // Números
-  for (const g of GEOMETRIA) dibujarTexto(ctx, c, r, g);
+  for (const t of TAJADAS) dibujarTexto(ctx, c, r, t);
 
   // Clavijas en cada división (son las que "golpean" la flecha)
-  for (const g of GEOMETRIA) {
-    const a = aRad(g.inicio - 90);
+  for (const t of TAJADAS) {
+    const a = aRad(t.inicio - 90);
     const px = c + Math.cos(a) * r * 0.955;
     const py = c + Math.sin(a) * r * 0.955;
-    const radio = r * 0.022;
+    const radio = r * 0.02;
     const brillo = ctx.createRadialGradient(px - radio * 0.4, py - radio * 0.4, 0, px, py, radio);
     brillo.addColorStop(0, '#ffffff');
     brillo.addColorStop(0.4, '#ffe08a');
@@ -199,36 +220,19 @@ function dibujarRueda() {
   }
 }
 
-/**
- * Elige la orientación que permite el número más grande:
- * - "derecho": se lee derecho cuando la tajada pasa por la flecha (tajadas anchas).
- * - "radial": acostado a lo largo del radio (tajadas finitas, como la del 10).
- */
-function dibujarTexto(ctx, c, r, g) {
+/** Número derecho (se lee bien cuando la tajada pasa por la flecha), lo más grande que entre. */
+function dibujarTexto(ctx, c, r, t) {
   ctx.font = `100px ${FUENTE_NUMEROS}`;
-  const k = ctx.measureText(g.texto).width / 100; // ancho del texto por cada px de fuente
-  const s = Math.sin(aRad(Math.min(g.ancho, 150) / 2));
-  const maximo = r * 0.27;
-
-  // Derecho centrado al 68% del radio; si no entra, se corre hacia el borde (más ancho)
-  const fCentrado = (1.36 * r * s) / (1.1 * k + 0.72 * s);
-  const fBorde = Math.min(maximo, (1.8 * r * s) / (1.1 * k + 1.44 * s));
-  const centrado = fCentrado >= maximo * 0.85;
-  const fDerecho = centrado ? Math.min(maximo, fCentrado) : fBorde;
-  const fRadial = Math.min(maximo, (1.8 * r * s) / (0.8 + 2 * s * k));
-  // Se prefiere derecho; acostado solo si gana por mucho (en la práctica, el 10)
-  const radial = fRadial > fDerecho * 1.3;
-  const f = radial ? fRadial : fDerecho;
+  const k = ctx.measureText(t.texto).width / 100; // ancho del texto por cada px de fuente
+  const s = Math.sin(aRad(Math.min(t.ancho, 150) / 2));
+  const radio = r * 0.76;
+  // El ancho del número tiene que entrar en la tajada a la altura de su borde interno
+  const f = Math.min(r * 0.2, (2 * s * radio) / (1.1 * k + 0.72 * s));
 
   ctx.save();
   ctx.translate(c, c);
-  ctx.rotate(aRad(g.inicio + g.ancho / 2));
-  if (radial) {
-    ctx.translate(0, -(r * 0.9 - (k * f) / 2));
-    ctx.rotate(-Math.PI / 2);
-  } else {
-    ctx.translate(0, -(centrado ? r * 0.68 : r * 0.9 - f * 0.36));
-  }
+  ctx.rotate(aRad(t.inicio + t.ancho / 2));
+  ctx.translate(0, -radio);
   ctx.font = `${f}px ${FUENTE_NUMEROS}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -238,11 +242,11 @@ function dibujarTexto(ctx, c, r, g) {
   ctx.shadowColor = 'rgba(0,0,0,0.35)';
   ctx.shadowBlur = f * 0.12;
   ctx.shadowOffsetY = f * 0.04;
-  // Luckiest Guy apoya las cifras un poco bajas: se compensa subiéndolas
-  ctx.strokeText(g.texto, 0, f * 0.06);
+  // Luckiest Guy apoya las cifras un poco bajas: se compensa con un pequeño corrimiento
+  ctx.strokeText(t.texto, 0, f * 0.06);
   ctx.shadowColor = 'transparent';
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(g.texto, 0, f * 0.06);
+  ctx.fillText(t.texto, 0, f * 0.06);
   ctx.restore();
 }
 
@@ -271,7 +275,7 @@ const sonido = (() => {
   let mudo = false;
   let ultimoTic = 0;
 
-  /** Crea o despierta el AudioContext. Hay que llamarlo tras un clic o una tecla. */
+  /** Crea o despierta el AudioContext. Los navegadores exigen un clic o una tecla en la TV. */
   function activar() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -287,11 +291,19 @@ const sonido = (() => {
       ruido = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.05), ctx.sampleRate);
       const datos = ruido.getChannelData(0);
       for (let i = 0; i < datos.length; i++) datos[i] = Math.random() * 2 - 1;
+
+      ctx.addEventListener('statechange', actualizarAviso);
     }
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    if (ctx.state === 'suspended') ctx.resume().then(actualizarAviso).catch(() => {});
+    actualizarAviso();
   }
 
-  const disponible = () => ctx && ctx.state === 'running' && !mudo;
+  const activo = () => !!ctx && ctx.state === 'running';
+  const disponible = () => activo() && !mudo;
+
+  function actualizarAviso() {
+    el.avisoSonido.hidden = activo();
+  }
 
   /** "Tic" mecánico: golpe de ruido filtrado + un clic tonal corto. */
   function tic() {
@@ -477,7 +489,7 @@ const confeti = (() => {
       lluvia(260, dorados);
       setTimeout(() => canones(240, dorados), 700);
     } else {
-      canones(240, [color, color, '#FF2D87', '#00C2FF', '#FFC83D', '#6FB800', '#FFFFFF', '#C13BF0']);
+      canones(240, [color, color, '#FF2D87', '#00C2FF', '#FFC83D', '#7CB800', '#FFFFFF', '#C13BF0']);
     }
     if (!corriendo) {
       corriendo = true;
@@ -532,6 +544,79 @@ const confeti = (() => {
 })();
 
 /* =========================================================
+   Historial de lo que salió (queda guardado en el navegador de la TV)
+   ========================================================= */
+
+const historial = (() => {
+  const CLAVE = 'ruleta.historial';
+  const MAXIMO_GUARDADO = 500;
+  const MAXIMO_VISIBLE = 30;
+  let tiradas = [];
+
+  function cargar() {
+    try {
+      const datos = JSON.parse(localStorage.getItem(CLAVE) || '[]');
+      if (Array.isArray(datos)) tiradas = datos.filter((t) => t && typeof t.texto === 'string');
+    } catch { tiradas = []; }
+  }
+
+  function guardar() {
+    try { localStorage.setItem(CLAVE, JSON.stringify(tiradas.slice(-MAXIMO_GUARDADO))); } catch { /* sin almacenamiento */ }
+  }
+
+  const hora = (ms) => new Date(ms).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
+  function item(tirada, numero, nuevo) {
+    const li = document.createElement('li');
+    li.className = nuevo ? 'historial-item nuevo' : 'historial-item';
+    li.style.setProperty('--color', tirada.color);
+
+    const valor = document.createElement('span');
+    valor.className = 'historial-numero';
+    valor.textContent = tirada.texto;
+
+    const detalle = document.createElement('span');
+    detalle.className = 'historial-detalle';
+    const puntos = document.createElement('span');
+    puntos.className = 'historial-puntos';
+    puntos.textContent = unidadPara(tirada.texto);
+    const momento = document.createElement('span');
+    momento.className = 'historial-hora';
+    momento.textContent = hora(tirada.hora);
+    detalle.append(puntos, momento);
+
+    const orden = document.createElement('span');
+    orden.className = 'historial-orden';
+    orden.textContent = `#${numero}`;
+
+    li.append(valor, detalle, orden);
+    return li;
+  }
+
+  function pintar(conNuevo = false) {
+    const total = tiradas.length;
+    el.historialTotal.textContent = total === 1 ? '1 tirada' : `${total} tiradas`;
+    el.historialVacio.hidden = total > 0;
+    const ultimas = tiradas.slice(-MAXIMO_VISIBLE).reverse();
+    el.historialLista.replaceChildren(...ultimas.map((t, i) => item(t, total - i, conNuevo && i === 0)));
+  }
+
+  function agregar(sector) {
+    tiradas.push({ id: sector.id, texto: sector.texto, color: sector.color, hora: Date.now() });
+    guardar();
+    pintar(true);
+  }
+
+  function borrar() {
+    tiradas = [];
+    guardar();
+    pintar();
+  }
+
+  return { cargar, pintar, agregar, borrar };
+})();
+
+/* =========================================================
    Giro: aceleración corta y frenado largo, con resultado determinista
    ========================================================= */
 
@@ -549,7 +634,7 @@ function progreso(t) {
   return (ACELERACION / 2 + ((1 - ACELERACION) / (FRENADO + 1)) * (1 - Math.pow(1 - u, FRENADO + 1))) / AREA;
 }
 
-let estado = 'inicio'; // 'inicio' | 'listo' | 'girando' | 'resultado'
+let estado = 'qr';     // 'qr' | 'listo' | 'girando' | 'resultado'
 let rotacion = 0;      // grados, sentido horario
 let animacion = null;
 let indiceActual = 0;
@@ -558,29 +643,14 @@ let ultimoFrame = 0;
 let bucleActivo = false;
 let ultimoResultado = null;
 let momentoResultado = 0;
-let momentoCierre = 0;
-
-/** Elige un sector según sus chances (equivale a elegir un ángulo al azar). */
-function elegirSector() {
-  let x = aleatorio() * TOTAL_CHANCES;
-  for (const g of GEOMETRIA) {
-    if (x < g.chances) return g;
-    x -= g.chances;
-  }
-  return GEOMETRIA[GEOMETRIA.length - 1];
-}
 
 function girar() {
-  if (estado === 'inicio') empezar({ conGesto: false });
   if (estado !== 'listo') return;
-  if (performance.now() - momentoCierre < 350) return;
 
-  sonido.activar();
-
-  // 1) Se elige el sector y un punto dentro de él, lejos de los bordes.
-  const elegido = elegirSector();
-  const margen = Math.min(elegido.ancho * 0.2, 2.5);
-  const anguloDestino = elegido.inicio + margen + aleatorio() * (elegido.ancho - 2 * margen);
+  // 1) Se elige una tajada al azar (todas valen lo mismo) y un punto dentro de ella, lejos de los bordes.
+  const elegida = TAJADAS[Math.floor(aleatorio() * TAJADAS.length)];
+  const margen = elegida.ancho * 0.15;
+  const anguloDestino = elegida.inicio + margen + aleatorio() * (elegida.ancho - 2 * margen);
 
   // 2) Se calcula la rotación final para que ese punto quede bajo la flecha.
   const vueltas = GIRO.vueltasMin + Math.floor(aleatorio() * (GIRO.vueltasMax - GIRO.vueltasMin + 1));
@@ -592,7 +662,7 @@ function girar() {
     hasta: rotacion + vueltas * 360 + delta,
     inicio: performance.now(),
     duracion,
-    elegido,
+    elegida,
   };
   animacion = giro;
 
@@ -600,19 +670,6 @@ function girar() {
   arrancarBucle();
   // Respaldo: si la pestaña no se está dibujando (minimizada o tapada), igual termina a tiempo
   setTimeout(() => { if (animacion === giro) terminarGiro(); }, duracion + 250);
-}
-
-function terminarGiro() {
-  const { elegido, hasta } = animacion;
-  animacion = null;
-  rotacion = normalizar(hasta);
-  el.rueda.style.transform = `rotate(${rotacion}deg)`;
-  indiceActual = indiceEn(anguloBajoFlecha(rotacion));
-
-  // El resultado se lee del ángulo final: siempre coincide con la flecha.
-  const ganador = GEOMETRIA[indiceActual];
-  if (ganador.id !== elegido.id) console.warn('[ruleta] desfase entre sorteo y ángulo', elegido, ganador);
-  mostrarResultado(ganador);
 }
 
 function arrancarBucle() {
@@ -625,28 +682,25 @@ function arrancarBucle() {
 function cuadro(ahora) {
   const dt = Math.min(50, ahora - ultimoFrame);
   ultimoFrame = ahora;
-  let terminado = false;
 
   if (animacion) {
     const t = (ahora - animacion.inicio) / animacion.duracion;
     rotacion = animacion.desde + (animacion.hasta - animacion.desde) * progreso(t);
-    terminado = t >= 1;
     el.rueda.style.transform = `rotate(${rotacion}deg)`;
 
-    // "Tic" cada vez que la flecha cambia de sector
+    // "Tic" cada vez que la flecha cambia de tajada
     const indice = indiceEn(anguloBajoFlecha(rotacion));
     if (indice !== indiceActual) {
       indiceActual = indice;
       sonido.tic();
       anguloFlecha = Math.min(anguloFlecha, -20); // la clavija empuja la flecha
     }
+    if (t >= 1) terminarGiro();
   }
 
   // La flecha vuelve a su lugar como un resorte
   anguloFlecha *= Math.exp(-dt / 70);
   el.flecha.style.transform = `rotate(${anguloFlecha}deg)`;
-
-  if (terminado) terminarGiro();
 
   if (animacion || Math.abs(anguloFlecha) > 0.05) {
     requestAnimationFrame(cuadro);
@@ -657,8 +711,24 @@ function cuadro(ahora) {
   }
 }
 
+function terminarGiro() {
+  const { elegida, hasta } = animacion;
+  animacion = null;
+  rotacion = normalizar(hasta);
+  el.rueda.style.transform = `rotate(${rotacion}deg)`;
+  indiceActual = indiceEn(anguloBajoFlecha(rotacion));
+
+  // El resultado se lee del ángulo final: siempre coincide con la flecha.
+  const ganadora = TAJADAS[indiceActual];
+  if (ganadora !== elegida) console.warn('[ruleta] desfase entre sorteo y ángulo', elegida, ganadora);
+
+  historial.agregar(ganadora);
+  // Si el celular salió mientras giraba, se anota en el historial pero no se muestra la tarjeta
+  if (estado === 'girando') mostrarResultado(ganadora);
+}
+
 /* =========================================================
-   Resultado
+   Estados de la pantalla
    ========================================================= */
 
 const ETIQUETAS = { triste: '¡Ay, no!', normal: '¡Salió!', jackpot: '★ ¡JACKPOT! ★' };
@@ -667,53 +737,54 @@ function unidadPara(texto) {
   return Number(texto) === 1 ? UNIDAD.singular : UNIDAD.plural;
 }
 
-function mostrarResultado(g) {
-  ultimoResultado = g;
+function cambiarEstado(nuevo) {
+  estado = nuevo;
+  el.pantallaQR.hidden = nuevo !== 'qr';
+  el.resultado.hidden = nuevo !== 'resultado';
+  el.marco.classList.toggle('girando', nuevo === 'girando');
+  el.marco.classList.toggle('festejo', nuevo === 'resultado');
+  conexion.enviarAlControl(mensajeEstado());
+}
+
+function mostrarResultado(t) {
+  ultimoResultado = t;
   momentoResultado = performance.now();
 
-  el.resEtiqueta.textContent = ETIQUETAS[g.festejo] || ETIQUETAS.normal;
-  el.resNumero.textContent = g.texto;
-  el.resUnidad.textContent = unidadPara(g.texto);
-  el.resDescripcion.textContent = g.descripcion;
-  el.tarjeta.style.setProperty('--color', g.color);
+  el.resEtiqueta.textContent = ETIQUETAS[t.festejo] || ETIQUETAS.normal;
+  el.resNumero.textContent = t.texto;
+  el.resUnidad.textContent = unidadPara(t.texto);
+  el.resDescripcion.textContent = t.descripcion;
+  el.tarjeta.style.setProperty('--color', t.color);
   el.resultado.classList.remove('resultado--triste', 'resultado--jackpot');
-  if (g.festejo === 'triste' || g.festejo === 'jackpot') el.resultado.classList.add(`resultado--${g.festejo}`);
-  el.resultado.hidden = false;
+  if (t.festejo === 'triste' || t.festejo === 'jackpot') el.resultado.classList.add(`resultado--${t.festejo}`);
 
-  sonido.festejo(g.festejo);
-  confeti.lanzar(g.festejo, g.color);
   cambiarEstado('resultado');
+  sonido.festejo(t.festejo);
+  confeti.lanzar(t.festejo, t.color);
 }
 
 function cerrarResultado() {
   if (estado !== 'resultado') return;
   if (performance.now() - momentoResultado < 700) return; // evita cerrar sin querer
-  el.resultado.hidden = true;
-  momentoCierre = performance.now();
   cambiarEstado('listo');
 }
 
-/** Acción principal (ESPACIO, Enter, control remoto, centro de la rueda). */
-function accionPrincipal() {
-  if (estado === 'resultado') cerrarResultado();
-  else girar();
+/** Estado 1 → 2: un celular tomó el control. */
+function entrarAlJuego() {
+  if (estado === 'qr') cambiarEstado(animacion ? 'girando' : 'listo');
 }
 
-function cambiarEstado(nuevo) {
-  estado = nuevo;
-  el.marco.classList.toggle('girando', nuevo === 'girando');
-  el.marco.classList.toggle('festejo', nuevo === 'resultado');
-  el.botonGirar.disabled = nuevo === 'girando' || nuevo === 'resultado';
-  el.botonGirar.textContent = nuevo === 'girando' ? 'GIRANDO…' : '¡GIRAR RULETA!';
-  conexion.difundir(mensajeEstado());
+/** Cualquier estado → 1: el celular salió o se desconectó. */
+function volverAlQR() {
+  cambiarEstado('qr');
 }
 
-/** Lo que se le manda a los celulares para que muestren lo mismo que la TV. */
+/** Lo que se le manda al celular para que muestre lo mismo que la TV. */
 function mensajeEstado() {
   const r = estado === 'resultado' ? ultimoResultado : null;
   return {
     tipo: 'estado',
-    estado: estado === 'inicio' ? 'listo' : estado,
+    estado: estado === 'qr' ? 'listo' : estado,
     titulo: TITULO,
     resultado: r && {
       texto: r.texto,
@@ -727,49 +798,53 @@ function mensajeEstado() {
 }
 
 /* =========================================================
-   Pantalla de inicio, pantalla completa y pantalla siempre encendida
+   Pantalla completa, sonido y pantalla siempre encendida
    ========================================================= */
-
-let bloqueoPantalla = null;
 
 async function mantenerPantallaEncendida() {
   try {
     if ('wakeLock' in navigator && document.visibilityState === 'visible') {
-      bloqueoPantalla = await navigator.wakeLock.request('screen');
+      await navigator.wakeLock.request('screen');
     }
   } catch { /* no soportado o sin permiso: no pasa nada */ }
 }
 
-function pantallaCompleta() {
-  const doc = document.documentElement;
-  if (!document.fullscreenElement && doc.requestFullscreen) doc.requestFullscreen().catch(() => {});
-}
-
 function alternarPantallaCompleta() {
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  else pantallaCompleta();
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  } else if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
 }
 
-/** Primer clic/tecla: habilita audio (los navegadores lo exigen) y pantalla completa. */
-function empezar({ conGesto = true } = {}) {
-  if (estado !== 'inicio') return;
+/** Primer clic o tecla en la TV: habilita el sonido (los navegadores lo exigen) y la pantalla completa. */
+let yaActivado = false;
+function activarTV() {
   sonido.activar();
-  if (conGesto) pantallaCompleta();
   mantenerPantallaEncendida();
-  el.inicio.hidden = true;
-  cambiarEstado('listo');
+  if (!yaActivado) {
+    yaActivado = true;
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }
 }
 
 /* =========================================================
-   Conexión con los celulares (PeerJS / WebRTC)
+   Conexión con el celular (PeerJS / WebRTC)
    La TV se registra con un ID fijo (ruletacumple-<código>) y el celular
    se conecta a ese ID. El QR lleva a control.html?sala=<código>.
+   Solo un celular controla a la vez; si entra otro, se le avisa que está ocupada.
    ========================================================= */
 
 const conexion = (() => {
   const PREFIJO = 'ruletacumple-';
   const CLAVE_SALA = 'ruleta.sala';
-  const controles = new Set();
+  const GRACIA_NORMAL = 6000;   // el celular avisa cada 2 s; sin noticias por 6 s → se lo da por ido
+  const GRACIA_PAUSA = 15000;   // si avisó que se bloqueó o cambió de app, se espera un poco más
+                                // (cuando vuelve, se reconecta solo y la TV regresa a la ruleta)
+  const pendientes = new Set(); // conexiones que todavía no se presentaron
+  let control = null;           // { conn, cliente, ultimoContacto, gracia }
   let peer = null;
   let codigo = null;
   let intentosId = 0;
@@ -783,7 +858,7 @@ const conexion = (() => {
     return s;
   }
 
-  /** Se reutiliza el código guardado para que los celulares se reconecten si se recarga la TV. */
+  /** Se reutiliza el código guardado para que el celular se reconecte si se recarga la TV. */
   function codigoGuardado() {
     let s = null;
     try { s = localStorage.getItem(CLAVE_SALA); } catch { /* sin almacenamiento */ }
@@ -801,13 +876,6 @@ const conexion = (() => {
   function mostrar(estadoConexion, texto) {
     el.conexion.dataset.estado = estadoConexion;
     el.conexionTexto.textContent = texto;
-  }
-
-  function actualizarContador() {
-    if (!peer || !peer.open) return;
-    const n = controles.size;
-    if (n === 0) mostrar('ok', 'Listo: esperando celulares');
-    else mostrar('ok', n === 1 ? '1 celular conectado' : `${n} celulares conectados`);
   }
 
   function pintarQR() {
@@ -847,7 +915,8 @@ const conexion = (() => {
   function crearPeer() {
     clearTimeout(reintento);
     if (peer && !peer.destroyed) peer.destroy();
-    controles.clear();
+    pendientes.clear();
+    if (control) soltarControl();
     mostrar('conectando', 'Conectando…');
 
     const p = new Peer(PREFIJO + codigo, { debug: 1 });
@@ -856,12 +925,12 @@ const conexion = (() => {
     p.on('open', () => {
       if (p !== peer) return;
       intentosId = 0;
-      actualizarContador();
+      mostrar('ok', 'Listo: esperando un celular');
     });
 
     p.on('connection', aceptar);
 
-    // Se cortó el servidor de señalización (los celulares ya conectados siguen andando)
+    // Se cortó el servidor de señalización (un celular ya conectado sigue andando)
     p.on('disconnected', () => {
       if (p !== peer || p.destroyed) return;
       mostrar('conectando', 'Reconectando…');
@@ -885,46 +954,76 @@ const conexion = (() => {
         mostrar('conectando', 'Reservando el código…');
         programar(crearPeer, 3000);
       } else if (['network', 'server-error', 'socket-error', 'socket-closed', 'browser-incompatible'].includes(err.type)) {
-        mostrar('error', 'Sin conexión. Reintentando…');
+        mostrar('error', 'Sin conexión a internet. Reintentando…');
         programar(crearPeer, 4000);
       }
     });
   }
 
   function aceptar(conn) {
-    conn.ultimoContacto = Date.now();
-    conn.on('open', () => {
-      controles.add(conn);
-      actualizarContador();
-      enviar(conn, mensajeEstado());
-    });
-    conn.on('data', (datos) => {
-      conn.ultimoContacto = Date.now();
-      recibir(datos, conn);
-    });
-    const quitar = () => {
-      if (controles.delete(conn)) actualizarContador();
+    conn.abiertaEn = Date.now();
+    conn.on('open', () => pendientes.add(conn));
+    conn.on('data', (datos) => recibir(datos, conn));
+    const perdida = () => {
+      pendientes.delete(conn);
+      if (control && control.conn === conn) soltarControl();
     };
-    conn.on('close', quitar);
-    conn.on('error', quitar);
+    conn.on('close', perdida);
+    conn.on('error', perdida);
+  }
+
+  /** El celular se presenta con un id propio; así, si recarga la página, recupera el control. */
+  function presentar(conn, cliente) {
+    pendientes.delete(conn);
+    if (control && control.cliente !== cliente) {
+      enviar(conn, { tipo: 'ocupado' });
+      setTimeout(() => cerrar(conn), 800);
+      return;
+    }
+    const anterior = control && control.conn;
+    control = { conn, cliente, ultimoContacto: Date.now(), gracia: GRACIA_NORMAL };
+    if (anterior && anterior !== conn) cerrar(anterior);
+    entrarAlJuego();
+    enviar(conn, mensajeEstado());
+  }
+
+  function soltarControl() {
+    const c = control && control.conn;
+    control = null;
+    if (c) cerrar(c);
+    volverAlQR();
   }
 
   function recibir(datos, conn) {
     if (!datos || typeof datos !== 'object') return;
+    if (datos.tipo === 'hola') {
+      presentar(conn, String(datos.cliente || conn.peer));
+      return;
+    }
+    if (!control || control.conn !== conn) return; // solo manda el celular que tiene el control
+
+    control.ultimoContacto = Date.now();
     switch (datos.tipo) {
+      case 'ping':
+        control.gracia = GRACIA_NORMAL;
+        enviar(conn, { tipo: 'pong' });
+        return;
+      case 'pausa':
+        control.gracia = GRACIA_PAUSA;
+        return;
+      case 'salir':
+        soltarControl();
+        return;
       case 'girar':
         girar();
         break;
       case 'continuar':
         cerrarResultado();
         break;
-      case 'ping':
-        enviar(conn, { tipo: 'pong' });
-        return;
       default:
         break;
     }
-    // Siempre se le confirma el estado real a quien pidió algo
+    // Siempre se le confirma el estado real
     enviar(conn, mensajeEstado());
   }
 
@@ -936,84 +1035,61 @@ const conexion = (() => {
     }
   }
 
-  function difundir(mensaje) {
-    for (const c of controles) enviar(c, mensaje);
+  function cerrar(conn) {
+    try { conn.close(); } catch { /* ya estaba cerrada */ }
   }
 
-  // Los celulares mandan "ping" cada 4 s; si uno deja de hablar, se lo da por ido.
+  function enviarAlControl(mensaje) {
+    if (control) enviar(control.conn, mensaje);
+  }
+
+  // Vigilancia: si el celular dejó de hablar (por ejemplo, se cerró la página), la TV vuelve al QR
   setInterval(() => {
     const ahora = Date.now();
-    let cambio = false;
-    for (const c of controles) {
-      if (ahora - c.ultimoContacto > 15000) {
-        controles.delete(c);
-        cambio = true;
-        try { c.close(); } catch { /* ya estaba cerrada */ }
+    if (control && ahora - control.ultimoContacto > control.gracia) soltarControl();
+    for (const c of pendientes) {
+      if (ahora - c.abiertaEn > 10000) {
+        pendientes.delete(c);
+        cerrar(c);
       }
     }
-    if (cambio) actualizarContador();
-  }, 5000);
+  }, 1000);
 
   function iniciar() {
     if (location.protocol === 'file:') el.avisoLocal.hidden = false;
     codigo = codigoGuardado();
     pintarQR();
     if (typeof Peer === 'undefined') {
-      mostrar('error', 'Sin internet: girá con el botón o ESPACIO');
+      mostrar('error', 'Sin internet: no se puede conectar el celular');
       return;
     }
     crearPeer();
   }
 
-  return { iniciar, difundir, pintarQR };
+  return { iniciar, enviarAlControl, pintarQR };
 })();
 
 /* =========================================================
-   Eventos
+   Eventos de la TV (el juego se maneja desde el celular)
    ========================================================= */
-
-const TECLAS_ACCION = new Set([' ', 'Enter', 'PageDown', 'PageUp', 'ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp']);
 
 document.addEventListener('keydown', (e) => {
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-
-  if (estado === 'inicio') {
-    if (e.key === 'Escape' || e.key === 'Tab') return;
-    e.preventDefault();
-    empezar();
-    return;
-  }
-
+  activarTV();
   const tecla = e.key.toLowerCase();
   if (tecla === 'f') {
     alternarPantallaCompleta();
   } else if (tecla === 'm') {
     sonido.alternarMudo();
-  } else if (TECLAS_ACCION.has(e.key)) {
-    e.preventDefault(); // que ESPACIO no "clickee" además el botón con foco
-    accionPrincipal();
+  } else if (tecla === 'r') {
+    if (confirm('¿Borrar todo el historial de tiradas?')) historial.borrar();
   }
 });
 
-el.inicio.addEventListener('click', () => empezar());
-
-el.botonGirar.addEventListener('click', (e) => {
-  e.currentTarget.blur();
-  girar();
-});
-
-el.centro.addEventListener('click', (e) => {
-  e.currentTarget.blur();
-  accionPrincipal();
-});
-
-el.botonContinuar.addEventListener('click', (e) => {
-  e.currentTarget.blur();
-  cerrarResultado();
-});
+document.addEventListener('pointerdown', activarTV);
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && estado !== 'inicio') mantenerPantallaEncendida();
+  if (document.visibilityState === 'visible' && yaActivado) mantenerPantallaEncendida();
 });
 
 let esperaRedimension = null;
@@ -1033,12 +1109,11 @@ window.addEventListener('resize', () => {
 function arrancar() {
   document.title = TITULO.replace(/[¡!]/g, '').trim();
   el.titulo.textContent = TITULO;
-  el.inicioTitulo.textContent = TITULO;
-  el.subtitulo.textContent = SUBTITULO;
+  el.qrTitulo.textContent = TITULO;
 
   crearFocos();
-  // Arranca con la flecha en el medio del primer sector
-  rotacion = -(GEOMETRIA[0].inicio + GEOMETRIA[0].ancho / 2);
+  // Arranca con la flecha en el medio de la primera tajada
+  rotacion = -(TAJADAS[0].inicio + TAJADAS[0].ancho / 2);
   indiceActual = indiceEn(anguloBajoFlecha(rotacion));
   el.rueda.style.transform = `rotate(${rotacion}deg)`;
 
@@ -1048,7 +1123,10 @@ function arrancar() {
     document.fonts.load(`100px ${FUENTE_NUMEROS}`).then(dibujarRueda).catch(() => {});
   }
 
+  historial.cargar();
+  historial.pintar();
   confeti.ajustar();
+  cambiarEstado('qr');
   conexion.iniciar();
 }
 
