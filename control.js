@@ -1,11 +1,10 @@
 /* =========================================================
    RULETA DEL CUMPLE — control desde el celular
-   Se conecta a la TV por PeerJS usando el código de la sala
-   (control.html?sala=<código>) y manda "girar", "continuar" y "salir".
+   Se conecta a la TV a través del broker de mensajería (ver mensajeria.js)
+   usando el código de la sala (control.html?sala=<código>&b=<broker>)
+   y manda "girar", "continuar" y "salir".
    ========================================================= */
 'use strict';
-
-const PREFIJO = 'ruletacumple-';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -40,29 +39,33 @@ const limpiarCodigo = (texto) => (texto || '').toLowerCase().replace(/[^a-z0-9]/
 
 /** Id de esta pestaña: si se recarga la página, la TV lo reconoce y le devuelve el control. */
 function idCliente() {
-  const nuevo = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   try {
     let id = sessionStorage.getItem('ruleta.cliente');
     if (!id) {
-      id = nuevo();
+      id = idAleatorio(12);
       sessionStorage.setItem('ruleta.cliente', id);
     }
     return id;
   } catch {
-    return nuevo();
+    return idAleatorio(12);
   }
 }
 
-let codigo = limpiarCodigo(new URLSearchParams(location.search).get('sala'));
+const parametros = new URLSearchParams(location.search);
+let codigo = limpiarCodigo(parametros.get('sala'));
+const broker = Math.min(BROKERS.length - 1, Math.max(0, parseInt(parametros.get('b'), 10) || 0));
 const cliente = idCliente();
-let peer = null;
-let conn = null;
+
+let canal = null;
+let temas = null;
+let idConexion = null;             // cambia en cada conexión al broker (va en el aviso de salida automático)
+let sesionTV = null;               // sesión de la TV que vimos por última vez
+let tvPrendida = false;
+let presentado = false;            // la TV ya nos respondió
 let estadoRuleta = 'desconectado'; // 'desconectado' | 'listo' | 'girando' | 'resultado'
 let detenido = false;              // después de "Salir" o de "ocupada" no se reconecta solo
-let ultimoMensaje = 0;
-let timerPing = null;
-let timerReintento = null;
-let timerApertura = null;
+let timerHola = null;
+let timerBusqueda = null;
 
 /* ---------- Interfaz ---------- */
 
@@ -141,161 +144,134 @@ function aplicarEstado(nuevo, resultado) {
 
 /* ---------- Conexión ---------- */
 
-function programarReintento(ms) {
-  clearTimeout(timerReintento);
-  timerReintento = setTimeout(conectar, ms);
-}
-
 function conectar() {
-  clearTimeout(timerReintento);
   if (!codigo || detenido) return;
-  if (typeof Peer === 'undefined') {
-    mostrarConexion('error', 'Sin internet. Recargá la página.');
+  if (canal) {
+    canal.reconectarYa();
     return;
   }
-  if (conn && conn.open) return;
-
+  temas = temasDeSala(codigo);
   mostrarConexion('conectando', 'Conectando…');
-  if (!peer || peer.destroyed) {
-    crearPeer();
-  } else if (peer.disconnected) {
-    try { peer.reconnect(); } catch { crearPeer(); } // al reabrirse dispara 'open' → abrirConexion
-  } else if (peer.open) {
-    abrirConexion();
-  }
-}
 
-function crearPeer() {
-  if (peer && !peer.destroyed) {
-    try { peer.destroy(); } catch { /* ya estaba cerrado */ }
-  }
-  const p = new Peer({ debug: 1 });
-  peer = p;
-
-  p.on('open', () => {
-    if (p === peer && !detenido) abrirConexion();
+  const c = new Canal({
+    url: BROKERS[broker],
+    keepalive: 10,
+    // Si este celular cierra la página o se queda sin señal, el broker le avisa a la TV
+    ultimoDeseo: () => {
+      idConexion = idAleatorio(8);
+      return { tema: temas.control, mensaje: JSON.stringify({ tipo: 'salir', cliente, conexion: idConexion }) };
+    },
+    alConectar: () => {
+      if (canal !== c) return;
+      presentado = false;
+      sesionTV = null;
+      tvPrendida = false;
+      c.suscribir(temas.presencia);
+      c.suscribir(temas.tv);
+      mostrarConexion('conectando', 'Buscando la ruleta…');
+      clearTimeout(timerBusqueda);
+      timerBusqueda = setTimeout(() => {
+        if (canal === c && !tvPrendida) mostrarConexion('error', 'No encuentro la ruleta. ¿Está abierta en la TV?');
+      }, 5000);
+    },
+    alDesconectar: () => {
+      if (canal !== c) return;
+      presentado = false;
+      clearInterval(timerHola);
+      aplicarEstado('desconectado');
+      mostrarConexion('error', 'Sin conexión. Reintentando…');
+    },
+    alMensaje: (tema, texto) => {
+      if (canal === c) recibir(tema, texto);
+    },
   });
-
-  p.on('error', (err) => {
-    if (p !== peer || detenido) return;
-    console.warn('[control] PeerJS:', err.type, err);
-    if (err.type === 'peer-unavailable') {
-      mostrarConexion('error', 'No encuentro la ruleta. ¿Está abierta en la TV?');
-    } else {
-      mostrarConexion('error', 'Problema de conexión. Reintentando…');
-    }
-    programarReintento(3000);
-  });
+  canal = c;
 }
 
-function abrirConexion() {
-  cerrarConexion();
-  const c = peer.connect(PREFIJO + codigo, { reliable: true });
-  conn = c;
-
-  // Si en unos segundos no abrió, se reintenta
-  clearTimeout(timerApertura);
-  timerApertura = setTimeout(() => {
-    if (conn === c && !c.open) {
-      cerrarConexion();
-      mostrarConexion('error', 'La ruleta no responde. Reintentando…');
-      programarReintento(1000);
-    }
-  }, 9000);
-
-  c.on('open', () => {
-    if (conn !== c) return;
-    clearTimeout(timerApertura);
-    ultimoMensaje = Date.now();
-    mostrarConexion('ok', 'Conectado a la ruleta');
-    iniciarPing();
-    enviar({ tipo: 'hola', cliente });
-  });
-
-  c.on('data', (datos) => {
-    if (conn !== c) return;
-    ultimoMensaje = Date.now();
-    recibir(datos);
-  });
-
-  c.on('close', () => { if (conn === c) conexionPerdida(); });
-  c.on('error', () => { if (conn === c) conexionPerdida(); });
+/** Deja de usar el canal actual. `prolijo` = despedirse (la TV no recibe el "salir" automático). */
+function soltarCanal(prolijo) {
+  clearInterval(timerHola);
+  clearTimeout(timerBusqueda);
+  if (canal) canal.cerrar({ prolijo });
+  canal = null;
+  presentado = false;
 }
 
-/** Cierra la conexión actual sin disparar la reconexión automática. */
-function cerrarConexion() {
-  const c = conn;
-  conn = null;
-  detenerPing();
-  if (c) {
-    try { c.close(); } catch { /* ya estaba cerrada */ }
-  }
+function enviar(tipo) {
+  if (!canal || !presentado) return false;
+  return canal.publicar(temas.control, JSON.stringify({ tipo, cliente, conexion: idConexion }));
 }
 
-function conexionPerdida() {
-  cerrarConexion();
-  if (detenido) return;
-  aplicarEstado('desconectado');
-  mostrarConexion('error', 'Se cortó. Reconectando…');
-  programarReintento(1500);
-}
-
-function iniciarPing() {
-  detenerPing();
-  timerPing = setInterval(() => {
-    if (!conn || !conn.open) return;
-    if (Date.now() - ultimoMensaje > 8000) {
-      conexionPerdida();
+/** Le avisa a la TV que este celular quiere el control (insiste hasta que conteste). */
+function presentarse() {
+  clearInterval(timerHola);
+  const hola = () => {
+    if (presentado || !tvPrendida || detenido || !canal) {
+      clearInterval(timerHola);
       return;
     }
-    enviar({ tipo: 'ping' });
-  }, 2000);
+    canal.publicar(temas.control, JSON.stringify({ tipo: 'hola', cliente, conexion: idConexion }));
+  };
+  mostrarConexion('conectando', 'Conectando con la ruleta…');
+  hola();
+  timerHola = setInterval(() => {
+    hola();
+    if (!presentado && tvPrendida) mostrarConexion('conectando', 'Esperando respuesta de la TV…');
+  }, 4000);
 }
 
-function detenerPing() {
-  clearInterval(timerPing);
-  timerPing = null;
-}
+function recibir(tema, texto) {
+  let datos;
+  try { datos = JSON.parse(texto); } catch { return; }
+  if (!datos) return;
 
-function enviar(mensaje) {
-  try {
-    if (conn && conn.open) {
-      conn.send(mensaje);
-      return true;
+  if (tema === temas.presencia) {
+    tvPrendida = datos.online === true;
+    if (!tvPrendida) {
+      presentado = false;
+      clearInterval(timerHola);
+      aplicarEstado('desconectado');
+      mostrarConexion('error', 'La ruleta de la TV está cerrada. Esperando a que vuelva…');
+    } else if (datos.sesion !== sesionTV) {
+      // TV nueva o reconectada: hay que presentarse otra vez
+      sesionTV = datos.sesion;
+      presentado = false;
+      presentarse();
     }
-  } catch (e) {
-    console.warn('[control] no se pudo enviar', e);
+    return;
   }
-  return false;
-}
 
-function recibir(datos) {
-  if (!datos || typeof datos !== 'object') return;
+  if (tema !== temas.tv || datos.para !== cliente) return;
+
   if (datos.tipo === 'ocupado') {
     detenido = true;
-    cerrarConexion();
+    soltarCanal(true);
     aplicarEstado('desconectado');
     mostrarConexion('error', 'Ruleta ocupada');
     mostrarAviso('ocupado');
-    return;
+  } else if (datos.tipo === 'liberado') {
+    // La TV nos soltó sin que lo pidiéramos (por ejemplo, un aviso viejo): volvemos a entrar
+    if (!detenido) {
+      presentado = false;
+      presentarse();
+    }
+  } else if (datos.tipo === 'estado') {
+    presentado = true;
+    clearInterval(timerHola);
+    mostrarConexion('ok', 'Conectado a la ruleta');
+    if (datos.titulo) {
+      el.titulo.textContent = datos.titulo;
+      document.title = `Control · ${datos.titulo.replace(/[¡!]/g, '').trim()}`;
+    }
+    aplicarEstado(datos.estado, datos.resultado);
   }
-  if (datos.tipo !== 'estado') return;
-  if (datos.titulo) {
-    el.titulo.textContent = datos.titulo;
-    document.title = `Control · ${datos.titulo.replace(/[¡!]/g, '').trim()}`;
-  }
-  aplicarEstado(datos.estado, datos.resultado);
 }
 
 /** "Salir": la TV vuelve al QR y este celular deja de reconectarse solo. */
 function salir() {
+  enviar('salir');
   detenido = true;
-  clearTimeout(timerReintento);
-  enviar({ tipo: 'salir' });
-  const c = conn;
-  conn = null;
-  detenerPing();
-  setTimeout(() => { try { if (c) c.close(); } catch { /* nada */ } }, 400); // deja salir el mensaje
+  soltarCanal(true);
   aplicarEstado('desconectado');
   mostrarConexion('error', 'Desconectado');
   mostrarAviso('afuera');
@@ -316,7 +292,7 @@ async function mantenerPantallaEncendida() {
 
 el.botonGirar.addEventListener('click', () => {
   if (estadoRuleta !== 'listo') return;
-  if (enviar({ tipo: 'girar' })) {
+  if (enviar('girar')) {
     vibrar(40);
     aplicarEstado('girando'); // la TV confirma (o corrige) enseguida
   }
@@ -324,7 +300,7 @@ el.botonGirar.addEventListener('click', () => {
 });
 
 el.botonContinuar.addEventListener('click', () => {
-  if (enviar({ tipo: 'continuar' })) {
+  if (enviar('continuar')) {
     vibrar(20);
     el.resultado.hidden = true;
   }
@@ -357,39 +333,21 @@ el.formCodigo.addEventListener('submit', (e) => {
   mantenerPantallaEncendida();
 });
 
-// Bloqueo de pantalla o cambio de app: se avisa a la TV para que espere un poco más.
-// Al volver, se reconecta si hace falta.
+// Al volver a la pestaña (o desbloquear el celu), se reconecta si la conexión se murió
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    enviar({ tipo: 'pausa' });
-    return;
-  }
-  if (!codigo || detenido) return;
+  if (document.visibilityState !== 'visible' || !codigo || detenido) return;
   mantenerPantallaEncendida();
-  if (conn && conn.open && Date.now() - ultimoMensaje < 8000) {
-    enviar({ tipo: 'ping' });
-  } else {
-    cerrarConexion();
-    conectar();
-  }
+  conectar();
 });
 
-// Cerrar la pestaña o salir de la página cuenta como "Salir": se avisa y se corta la conexión.
-// Si el aviso no llega a salir, la TV igual se da cuenta a los pocos segundos porque dejan de llegar los "ping".
+// Cerrar la página cuenta como "Salir": se corta de golpe y el broker le avisa a la TV
 window.addEventListener('pagehide', () => {
-  enviar({ tipo: 'salir' });
-  const c = conn;
-  conn = null;
-  detenerPing();
-  try { if (c) c.close(); } catch { /* nada */ }
+  if (canal) soltarCanal(false);
 });
 
 // Si el navegador restaura la página desde su caché (botón "atrás"), se vuelve a conectar
 window.addEventListener('pageshow', (e) => {
-  if (e.persisted && codigo && !detenido) {
-    cerrarConexion();
-    conectar();
-  }
+  if (e.persisted && codigo && !detenido) conectar();
 });
 
 /* ---------- Arranque ---------- */

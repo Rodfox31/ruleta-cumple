@@ -831,24 +831,26 @@ function activarTV() {
 }
 
 /* =========================================================
-   Conexión con el celular (PeerJS / WebRTC)
-   La TV se registra con un ID fijo (ruletacumple-<código>) y el celular
-   se conecta a ese ID. El QR lleva a control.html?sala=<código>.
+   Conexión con el celular (mensajería MQTT, ver mensajeria.js)
+   La TV y el celular se hablan a través de un broker público, en los
+   temas de la sala (ruletacumple/v1/<código>/…). El QR lleva a
+   control.html?sala=<código>&b=<broker>.
+   - La TV publica su presencia (retenida); si se cae, el broker publica
+     "apagada" en su nombre.
+   - Si el celular cierra la página o se queda sin señal, el broker
+     publica "salir" en su nombre y la TV vuelve al QR.
    Solo un celular controla a la vez; si entra otro, se le avisa que está ocupada.
    ========================================================= */
 
 const conexion = (() => {
-  const PREFIJO = 'ruletacumple-';
   const CLAVE_SALA = 'ruleta.sala';
-  const GRACIA_NORMAL = 6000;   // el celular avisa cada 2 s; sin noticias por 6 s → se lo da por ido
-  const GRACIA_PAUSA = 15000;   // si avisó que se bloqueó o cambió de app, se espera un poco más
-                                // (cuando vuelve, se reconecta solo y la TV regresa a la ruleta)
-  const pendientes = new Set(); // conexiones que todavía no se presentaron
-  let control = null;           // { conn, cliente, ultimoContacto, gracia }
-  let peer = null;
+  const CLAVE_BROKER = 'ruleta.broker';
   let codigo = null;
-  let intentosId = 0;
-  let reintento = null;
+  let broker = 0;
+  let canal = null;
+  let temas = null;
+  let fallos = 0;       // intentos seguidos sin poder conectar al broker
+  let control = null;   // { cliente, conexion, confirmado }
 
   function nuevoCodigo() {
     const abc = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -865,11 +867,18 @@ const conexion = (() => {
     return s && /^[a-z0-9]{6}$/.test(s) ? s : nuevoCodigo();
   }
 
+  function brokerGuardado() {
+    let b = 0;
+    try { b = parseInt(localStorage.getItem(CLAVE_BROKER), 10) || 0; } catch { /* sin almacenamiento */ }
+    return b >= 0 && b < BROKERS.length ? b : 0;
+  }
+
   function urlControl() {
     const url = new URL('control.html', location.href);
     url.search = '';
     url.hash = '';
     url.searchParams.set('sala', codigo);
+    url.searchParams.set('b', String(broker));
     return url.href;
   }
 
@@ -907,125 +916,93 @@ const conexion = (() => {
     }
   }
 
-  function programar(fn, ms) {
-    clearTimeout(reintento);
-    reintento = setTimeout(fn, ms);
-  }
-
-  function crearPeer() {
-    clearTimeout(reintento);
-    if (peer && !peer.destroyed) peer.destroy();
-    pendientes.clear();
-    if (control) soltarControl();
+  function conectar() {
+    temas = temasDeSala(codigo);
     mostrar('conectando', 'Conectando…');
 
-    const p = new Peer(PREFIJO + codigo, { debug: 1 });
-    peer = p;
-
-    p.on('open', () => {
-      if (p !== peer) return;
-      intentosId = 0;
-      mostrar('ok', 'Listo: esperando un celular');
-    });
-
-    p.on('connection', aceptar);
-
-    // Se cortó el servidor de señalización (un celular ya conectado sigue andando).
-    // Se mira un instante después: si fue por un error grave, PeerJS ya lo destruyó
-    // y el manejador de 'error' programó el reintento; no hay que pisarlo.
-    p.on('disconnected', () => {
-      setTimeout(() => {
-        if (p !== peer || p.destroyed) return;
-        mostrar('conectando', 'Reconectando…');
-        programar(() => {
-          if (p !== peer) return;
-          if (p.destroyed) crearPeer();
-          else if (p.disconnected) {
-            try { p.reconnect(); } catch { crearPeer(); }
-          }
-        }, 2000);
-      }, 0);
-    });
-
-    p.on('error', (err) => {
-      if (p !== peer) return;
-      console.warn('[ruleta] PeerJS:', err.type, err);
-      if (err.type === 'unavailable-id') {
-        // El código todavía figura ocupado (pasa un rato después de recargar la página).
-        // Se insiste ~75 s para no invalidar el QR que ya tienen los celulares; después se cambia.
-        intentosId++;
-        if (intentosId > 25) {
-          intentosId = 0;
-          codigo = nuevoCodigo();
-          pintarQR();
+    const c = new Canal({
+      url: BROKERS[broker],
+      keepalive: 10,
+      // Si la TV se cae, el broker deja anotado que está apagada
+      ultimoDeseo: { tema: temas.presencia, mensaje: JSON.stringify({ online: false }), retener: true },
+      alConectar: () => {
+        if (canal !== c) return;
+        fallos = 0;
+        c.suscribir(temas.control);
+        // Cada conexión es una sesión nueva: el celular, al verla, se vuelve a presentar.
+        c.publicar(temas.presencia, JSON.stringify({ online: true, sesion: idAleatorio(8) }), { retener: true });
+        mostrar('ok', 'Listo: esperando un celular');
+        // Si había un celular y la TV estuvo desconectada, pudo perderse su aviso de salida:
+        // se le da unos segundos para que se vuelva a presentar; si no, se vuelve al QR.
+        if (control) {
+          control.confirmado = false;
+          setTimeout(() => { if (control && !control.confirmado) soltarControl(false); }, 6000);
         }
-        mostrar('conectando', 'Recuperando el código de la sala…');
-        programar(crearPeer, 3000);
-      } else if (err.type !== 'peer-unavailable') {
-        // Problemas de red o del servidor: si PeerJS se rindió, se arranca de cero
-        mostrar('error', 'Sin conexión a internet. Reintentando…');
-        programar(() => {
-          if (p !== peer) return;
-          if (p.destroyed || p.disconnected) crearPeer();
-          else if (p.open) mostrar('ok', 'Listo: esperando un celular');
-        }, 4000);
-      }
+      },
+      alDesconectar: (estaba) => {
+        if (canal !== c) return;
+        if (!estaba) fallos++;
+        mostrar(fallos >= 2 ? 'error' : 'conectando', fallos >= 2 ? 'Sin conexión a internet. Reintentando…' : 'Reconectando…');
+        // Si un broker no anda, se prueba con el siguiente (el QR se actualiza solo)
+        if (fallos >= 3) cambiarBroker();
+      },
+      alMensaje: (tema, texto) => {
+        if (canal === c && tema === temas.control) recibir(texto);
+      },
     });
+    canal = c;
   }
 
-  function aceptar(conn) {
-    conn.abiertaEn = Date.now();
-    conn.on('open', () => pendientes.add(conn));
-    conn.on('data', (datos) => recibir(datos, conn));
-    const perdida = () => {
-      pendientes.delete(conn);
-      if (control && control.conn === conn) soltarControl();
-    };
-    conn.on('close', perdida);
-    conn.on('error', perdida);
+  function cambiarBroker() {
+    fallos = 0;
+    if (canal) canal.cerrar();
+    broker = (broker + 1) % BROKERS.length;
+    try { localStorage.setItem(CLAVE_BROKER, String(broker)); } catch { /* sin almacenamiento */ }
+    pintarQR();
+    conectar();
+  }
+
+  function enviar(mensaje) {
+    if (canal) canal.publicar(temas.tv, JSON.stringify(mensaje));
+  }
+
+  function enviarAlControl(mensaje) {
+    if (control) enviar({ ...mensaje, para: control.cliente });
   }
 
   /** El celular se presenta con un id propio; así, si recarga la página, recupera el control. */
-  function presentar(conn, cliente) {
-    pendientes.delete(conn);
+  function presentar(cliente, idConexion) {
     if (control && control.cliente !== cliente) {
-      enviar(conn, { tipo: 'ocupado' });
-      setTimeout(() => cerrar(conn), 800);
+      enviar({ tipo: 'ocupado', para: cliente });
       return;
     }
-    const anterior = control && control.conn;
-    control = { conn, cliente, ultimoContacto: Date.now(), gracia: GRACIA_NORMAL };
-    if (anterior && anterior !== conn) cerrar(anterior);
+    control = { cliente, conexion: idConexion, confirmado: true };
     entrarAlJuego();
-    enviar(conn, mensajeEstado());
+    enviarAlControl(mensajeEstado());
   }
 
-  function soltarControl() {
-    const c = control && control.conn;
+  function soltarControl(avisar) {
+    const anterior = control;
     control = null;
-    if (c) cerrar(c);
+    if (anterior && avisar) enviar({ tipo: 'liberado', para: anterior.cliente });
     volverAlQR();
   }
 
-  function recibir(datos, conn) {
-    if (!datos || typeof datos !== 'object') return;
+  function recibir(texto) {
+    let datos;
+    try { datos = JSON.parse(texto); } catch { return; }
+    if (!datos || typeof datos.cliente !== 'string') return;
+
     if (datos.tipo === 'hola') {
-      presentar(conn, String(datos.cliente || conn.peer));
+      presentar(datos.cliente, datos.conexion);
       return;
     }
-    if (!control || control.conn !== conn) return; // solo manda el celular que tiene el control
+    if (!control || control.cliente !== datos.cliente) return; // solo manda el celular que tiene el control
 
-    control.ultimoContacto = Date.now();
     switch (datos.tipo) {
-      case 'ping':
-        control.gracia = GRACIA_NORMAL;
-        enviar(conn, { tipo: 'pong' });
-        return;
-      case 'pausa':
-        control.gracia = GRACIA_PAUSA;
-        return;
       case 'salir':
-        soltarControl();
+        // Un aviso de una conexión vieja del mismo celular (por ejemplo, tras recargar) no cuenta
+        if (!datos.conexion || datos.conexion === control.conexion) soltarControl(true);
         return;
       case 'girar':
         girar();
@@ -1034,49 +1011,22 @@ const conexion = (() => {
         cerrarResultado();
         break;
       default:
-        break;
+        return;
     }
     // Siempre se le confirma el estado real
-    enviar(conn, mensajeEstado());
+    enviarAlControl(mensajeEstado());
   }
-
-  function enviar(conn, mensaje) {
-    try {
-      if (conn.open) conn.send(mensaje);
-    } catch (e) {
-      console.warn('[ruleta] no se pudo enviar', e);
-    }
-  }
-
-  function cerrar(conn) {
-    try { conn.close(); } catch { /* ya estaba cerrada */ }
-  }
-
-  function enviarAlControl(mensaje) {
-    if (control) enviar(control.conn, mensaje);
-  }
-
-  // Vigilancia: si el celular dejó de hablar (por ejemplo, se cerró la página), la TV vuelve al QR
-  setInterval(() => {
-    const ahora = Date.now();
-    if (control && ahora - control.ultimoContacto > control.gracia) soltarControl();
-    for (const c of pendientes) {
-      if (ahora - c.abiertaEn > 10000) {
-        pendientes.delete(c);
-        cerrar(c);
-      }
-    }
-  }, 1000);
 
   function iniciar() {
     if (location.protocol === 'file:') el.avisoLocal.hidden = false;
     codigo = codigoGuardado();
+    broker = brokerGuardado();
     pintarQR();
-    if (typeof Peer === 'undefined') {
-      mostrar('error', 'Sin internet: no se puede conectar el celular');
+    if (typeof Canal === 'undefined') {
+      mostrar('error', 'Falta el archivo mensajeria.js');
       return;
     }
-    crearPeer();
+    conectar();
   }
 
   return { iniciar, enviarAlControl, pintarQR };

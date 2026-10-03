@@ -41,6 +41,12 @@ El historial queda guardado en el navegador de la TV: si se recarga la página, 
 
 ## Cómo funciona la conexión
 
-No hay servidor propio: la TV y el celular se conectan directo por WebRTC usando [PeerJS](https://peerjs.com/). El servicio gratuito de PeerJS solo se usa para que se encuentren. El celular manda una señal cada 2 segundos: si deja de llegar (por ejemplo, porque se cerró la página sin avisar), la TV vuelve al QR a los pocos segundos. Si el celular se bloquea o cambia de app, la TV espera 15 segundos; cuando vuelve, se reconecta solo.
+No hay servidor propio: la TV y el celular se mandan mensajes a través de un servidor público de mensajería (MQTT por WebSocket seguro: [EMQX](https://www.emqx.com/en/mqtt/public-mqtt5-broker) y, si ese no anda, [HiveMQ](https://www.hivemq.com/mqtt/public-mqtt-broker/)). El cliente está en `mensajeria.js`, sin librerías externas. Como los mensajes pasan por ese servidor, funciona aunque la TV y el celular estén en redes distintas (por ejemplo, la laptop en Wi-Fi y el celu con datos).
+
+- Si el celular cierra la página o se queda sin señal, el servidor le avisa a la TV y la TV vuelve al QR en menos de un segundo. Cuando el celular vuelve, se reconecta solo.
+- El código de la sala queda guardado en el navegador de la TV: si se recarga la página, el celular se reconecta solo.
+- El servidor es público: cualquiera que conozca el código de 6 letras podría mandar mensajes a esa sala. Para un cumple alcanza; no lo uses para nada sensible.
 
 Si el celular no conecta, revisá que la TV muestre "Listo: esperando un celular". También podés escribir a mano el código que aparece abajo del QR.
+
+Si cambiás el código, subí el número de versión (`?v=4`) en `index.html` y `control.html` para que los navegadores no usen archivos viejos guardados.
