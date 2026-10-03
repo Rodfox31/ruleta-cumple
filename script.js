@@ -930,32 +930,45 @@ const conexion = (() => {
 
     p.on('connection', aceptar);
 
-    // Se cortó el servidor de señalización (un celular ya conectado sigue andando)
+    // Se cortó el servidor de señalización (un celular ya conectado sigue andando).
+    // Se mira un instante después: si fue por un error grave, PeerJS ya lo destruyó
+    // y el manejador de 'error' programó el reintento; no hay que pisarlo.
     p.on('disconnected', () => {
-      if (p !== peer || p.destroyed) return;
-      mostrar('conectando', 'Reconectando…');
-      programar(() => {
-        if (p !== peer || p.destroyed || !p.disconnected) return;
-        try { p.reconnect(); } catch { crearPeer(); }
-      }, 2000);
+      setTimeout(() => {
+        if (p !== peer || p.destroyed) return;
+        mostrar('conectando', 'Reconectando…');
+        programar(() => {
+          if (p !== peer) return;
+          if (p.destroyed) crearPeer();
+          else if (p.disconnected) {
+            try { p.reconnect(); } catch { crearPeer(); }
+          }
+        }, 2000);
+      }, 0);
     });
 
     p.on('error', (err) => {
       if (p !== peer) return;
       console.warn('[ruleta] PeerJS:', err.type, err);
       if (err.type === 'unavailable-id') {
-        // El ID todavía figura ocupado (pasa al recargar la página): se reintenta y luego se cambia.
+        // El código todavía figura ocupado (pasa un rato después de recargar la página).
+        // Se insiste ~75 s para no invalidar el QR que ya tienen los celulares; después se cambia.
         intentosId++;
-        if (intentosId > 4) {
+        if (intentosId > 25) {
           intentosId = 0;
           codigo = nuevoCodigo();
           pintarQR();
         }
-        mostrar('conectando', 'Reservando el código…');
+        mostrar('conectando', 'Recuperando el código de la sala…');
         programar(crearPeer, 3000);
-      } else if (['network', 'server-error', 'socket-error', 'socket-closed', 'browser-incompatible'].includes(err.type)) {
+      } else if (err.type !== 'peer-unavailable') {
+        // Problemas de red o del servidor: si PeerJS se rindió, se arranca de cero
         mostrar('error', 'Sin conexión a internet. Reintentando…');
-        programar(crearPeer, 4000);
+        programar(() => {
+          if (p !== peer) return;
+          if (p.destroyed || p.disconnected) crearPeer();
+          else if (p.open) mostrar('ok', 'Listo: esperando un celular');
+        }, 4000);
       }
     });
   }
