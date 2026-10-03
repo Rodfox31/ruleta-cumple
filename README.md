@@ -20,6 +20,15 @@ Si el celular toca **Salir** o cierra la página, la TV vuelve al QR. Controla u
 1. En la laptop conectada a la tele, abrí la página publicada y hacé **un clic** en la pantalla. Eso activa el sonido (los navegadores no dejan sonar nada sin un clic) y pone la pantalla completa.
 2. La laptop y los celulares necesitan internet; conviene que estén en el mismo Wi-Fi.
 
+### En el navegador de una Smart TV
+
+1. Abrí el navegador de la tele y escribí con el control: **`rodfox31.github.io/ruleta-cumple`** (no hace falta el `https://`).
+2. Guardala como favorito (o anclala al inicio) para no tipearla de nuevo.
+3. Apretá **OK** en el control una vez: eso activa el sonido.
+4. Si la tele oscurece la pantalla o pone un protector cuando nadie toca el control, desactivalo en el menú de imagen o de ahorro de energía.
+
+En las Smart TV la página usa un modo liviano solo: menos confeti y sin desenfoques, para que no se trabe. La dirección larga (`control.html?sala=…`) es la del celular y nunca se tipea: la abre el QR.
+
 ### Teclas en la TV
 
 | Tecla | Acción |
@@ -49,4 +58,4 @@ No hay servidor propio: la TV y el celular se mandan mensajes a través de un se
 
 Si el celular no conecta, revisá que la TV muestre "Listo: esperando un celular". También podés escribir a mano el código que aparece abajo del QR.
 
-Si cambiás el código, subí el número de versión (`?v=4`) en `index.html` y `control.html` para que los navegadores no usen archivos viejos guardados.
+Si cambiás el código, subí el número de versión (`?v=5`) en `index.html` y `control.html` para que los navegadores no usen archivos viejos guardados.

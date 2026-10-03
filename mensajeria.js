@@ -110,7 +110,7 @@ class Canal {
     this.conectado = false;
     if (!s) return;
     if (prolijo) this.enviarPor(s, 0xe0);
-    try { s.close(); } catch { /* ya estaba cerrado */ }
+    try { s.close(); } catch (e) { /* ya estaba cerrado */ }
   }
 
   /** Si la conexión no está viva (por ejemplo, al volver de segundo plano), reconecta ya. */
@@ -129,7 +129,7 @@ class Canal {
     let s;
     try {
       s = new WebSocket(this.url, ['mqtt']);
-    } catch {
+    } catch (e) {
       this.programarReintento();
       return;
     }
@@ -146,7 +146,7 @@ class Canal {
   cortar() {
     const s = this.socket;
     if (!s) return;
-    try { s.close(); } catch { /* nada */ }
+    try { s.close(); } catch (e) { /* nada */ }
     this.alCerrarse();
   }
 

@@ -23,6 +23,7 @@
 
 html {
   /* 1rem ≈ 19px en Full HD y ≈ 39px en 4K */
+  font-size: calc(0.9vh + 0.5vw);
   font-size: max(14px, calc(0.9vh + 0.5vw));
 }
 
@@ -65,7 +66,7 @@ body {
   content: '';
   position: absolute;
   width: calc(var(--rueda) * 1.7);
-  aspect-ratio: 1;
+  height: calc(var(--rueda) * 1.7);
   border-radius: 50%;
   background: repeating-conic-gradient(rgba(255, 255, 255, 0.07) 0deg 9deg, transparent 9deg 18deg);
   -webkit-mask-image: radial-gradient(circle, #000 25%, transparent 68%);
@@ -78,7 +79,7 @@ body {
 .rueda-marco {
   position: relative;
   width: var(--rueda);
-  aspect-ratio: 1;
+  height: var(--rueda);
   border-radius: 50%;
   background: radial-gradient(circle at 50% 50%, #4a148f 0 72%, #1b0640 100%);
   box-shadow:
@@ -90,7 +91,8 @@ body {
 
 #rueda {
   position: absolute;
-  inset: 7%;
+  top: 7%;
+  left: 7%;
   width: 86%;
   height: 86%;
   border-radius: 50%;
@@ -101,12 +103,12 @@ body {
 }
 
 /* Lamparitas alrededor de la ruleta */
-.focos { position: absolute; inset: 0; pointer-events: none; }
+.focos { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
 
 .foco {
   position: absolute;
   width: calc(var(--rueda) * 0.03);
-  aspect-ratio: 1;
+  height: calc(var(--rueda) * 0.03);
   border-radius: 50%;
   transform: translate(-50%, -50%);
   background: radial-gradient(circle at 35% 35%, #fff 0 15%, #ffe27a 45%, #ff9d00 100%);
@@ -331,7 +333,10 @@ body {
 
 .pantalla-qr {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 40;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -461,7 +466,10 @@ body {
 
 .resultado {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 50;
   display: grid;
   place-items: center;
@@ -475,7 +483,7 @@ body {
 .resultado-rayos {
   position: absolute;
   width: 170vmax;
-  aspect-ratio: 1;
+  height: 170vmax;
   background: repeating-conic-gradient(var(--color-rayos, rgba(255, 255, 255, 0.12)) 0deg 8deg, transparent 8deg 16deg);
   -webkit-mask-image: radial-gradient(circle, #000 10%, transparent 55%);
           mask-image: radial-gradient(circle, #000 10%, transparent 55%);
@@ -491,6 +499,7 @@ body {
 .tarjeta {
   --color: var(--violeta);
   position: relative;
+  width: 62vw;
   width: min(62vw, 92vh);
   padding: 3.5vh 4vw 4vh;
   border-radius: 4vh;
@@ -599,7 +608,10 @@ body {
 
 .confeti {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   z-index: 60;
@@ -636,7 +648,7 @@ body {
   .qr-titulo { font-size: 6vh; transform-origin: center; }
   .qr-pasos { font-size: 2.4vh; }
   .qr-pasos span { width: 4.5vh; height: 4.5vh; font-size: 2.4vh; }
-  .qr { width: min(70vw, 40vh); height: min(70vw, 40vh); }
+  .qr { width: 40vh; height: 40vh; width: min(70vw, 40vh); height: min(70vw, 40vh); }
 
   .tarjeta { width: 92vw; }
   .tarjeta-numero { font-size: 22vh; }
@@ -648,3 +660,13 @@ body {
   .qr-tarjeta,
   .foco { animation: none !important; }
 }
+
+/* Smart TV (lo activa script.js): sin desenfoques ni animaciones caras */
+.liviano .pantalla-qr,
+.liviano .resultado {
+  -webkit-backdrop-filter: none;
+          backdrop-filter: none;
+}
+.liviano .pantalla-qr { background: rgba(16, 3, 40, 0.94); }
+.liviano .rueda-zona::before,
+.liviano .qr-tarjeta { animation: none; }

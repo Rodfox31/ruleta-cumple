@@ -46,7 +46,7 @@ function idCliente() {
       sessionStorage.setItem('ruleta.cliente', id);
     }
     return id;
-  } catch {
+  } catch (e) {
     return idAleatorio(12);
   }
 }
@@ -222,7 +222,7 @@ function presentarse() {
 
 function recibir(tema, texto) {
   let datos;
-  try { datos = JSON.parse(texto); } catch { return; }
+  try { datos = JSON.parse(texto); } catch (e) { return; }
   if (!datos) return;
 
   if (tema === temas.presencia) {
@@ -285,7 +285,7 @@ async function mantenerPantallaEncendida() {
     if ('wakeLock' in navigator && document.visibilityState === 'visible') {
       await navigator.wakeLock.request('screen');
     }
-  } catch { /* no soportado: no pasa nada */ }
+  } catch (e) { /* no soportado: no pasa nada */ }
 }
 
 /* ---------- Eventos ---------- */

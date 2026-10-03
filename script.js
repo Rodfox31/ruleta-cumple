@@ -19,6 +19,10 @@ const TITULO = '¡Ruleta del Cumple!';
 // Palabra que acompaña al número en la tarjeta del resultado.
 const UNIDAD = { singular: 'PUNTO', plural: 'PUNTOS' };
 
+// Dirección publicada. Si la TV se abre en local (localhost o el archivo),
+// el QR igual manda al celular acá, porque el celu no puede abrir la compu.
+const URL_PUBLICA = 'https://rodfox31.github.io/ruleta-cumple/';
+
 /*
   ✏️ SECTORES DE LA RULETA
   Todas las tajadas son del mismo tamaño; lo que cambia es cuántas veces
@@ -96,6 +100,9 @@ function aleatorio() {
   crypto.getRandomValues(a);
   return a[0] / 4294967296;
 }
+
+/** Navegadores de Smart TV: menos confeti y sin efectos caros, para que no se trabe. */
+const MODO_LIVIANO = /SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|HbbTV|BRAVIA|AFT[A-Z]|CrKey|GoogleTV|Android TV/i.test(navigator.userAgent);
 
 const normalizar = (grados) => ((grados % 360) + 360) % 360;
 const aRad = (grados) => (grados * Math.PI) / 180;
@@ -437,7 +444,7 @@ const confeti = (() => {
   let alto = 0;
 
   function ajustar() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = MODO_LIVIANO ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
     ancho = window.innerWidth;
     alto = window.innerHeight;
     el.confeti.width = Math.round(ancho * dpr);
@@ -463,6 +470,7 @@ const confeti = (() => {
 
   /** Dos cañones desde las esquinas de abajo. */
   function canones(cantidad, colores) {
+    if (MODO_LIVIANO) cantidad = Math.round(cantidad * 0.4);
     for (let i = 0; i < cantidad; i++) {
       const izquierda = i % 2 === 0;
       const angulo = aRad(20 + aleatorio() * 38); // grados desde la vertical, hacia adentro
@@ -486,7 +494,7 @@ const confeti = (() => {
     if (tipo === 'jackpot') {
       const dorados = ['#FFD700', '#FFC300', '#FFF1A8', '#FFFFFF', '#FFB000', '#FF2D87'];
       canones(320, dorados);
-      lluvia(260, dorados);
+      lluvia(MODO_LIVIANO ? 100 : 260, dorados);
       setTimeout(() => canones(240, dorados), 700);
     } else {
       canones(240, [color, color, '#FF2D87', '#00C2FF', '#FFC83D', '#7CB800', '#FFFFFF', '#C13BF0']);
@@ -557,11 +565,11 @@ const historial = (() => {
     try {
       const datos = JSON.parse(localStorage.getItem(CLAVE) || '[]');
       if (Array.isArray(datos)) tiradas = datos.filter((t) => t && typeof t.texto === 'string');
-    } catch { tiradas = []; }
+    } catch (e) { tiradas = []; }
   }
 
   function guardar() {
-    try { localStorage.setItem(CLAVE, JSON.stringify(tiradas.slice(-MAXIMO_GUARDADO))); } catch { /* sin almacenamiento */ }
+    try { localStorage.setItem(CLAVE, JSON.stringify(tiradas.slice(-MAXIMO_GUARDADO))); } catch (e) { /* sin almacenamiento */ }
   }
 
   const hora = (ms) => new Date(ms).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -598,7 +606,10 @@ const historial = (() => {
     el.historialTotal.textContent = total === 1 ? '1 tirada' : `${total} tiradas`;
     el.historialVacio.hidden = total > 0;
     const ultimas = tiradas.slice(-MAXIMO_VISIBLE).reverse();
-    el.historialLista.replaceChildren(...ultimas.map((t, i) => item(t, total - i, conNuevo && i === 0)));
+    const fragmento = document.createDocumentFragment();
+    ultimas.forEach((t, i) => fragmento.appendChild(item(t, total - i, conNuevo && i === 0)));
+    el.historialLista.textContent = '';
+    el.historialLista.appendChild(fragmento);
   }
 
   function agregar(sector) {
@@ -806,15 +817,24 @@ async function mantenerPantallaEncendida() {
     if ('wakeLock' in navigator && document.visibilityState === 'visible') {
       await navigator.wakeLock.request('screen');
     }
-  } catch { /* no soportado o sin permiso: no pasa nada */ }
+  } catch (e) { /* no soportado o sin permiso: no pasa nada */ }
+}
+
+/** Los navegadores viejos (algunas Smart TV) no devuelven una promesa: se ignora el resultado. */
+function sinErrores(resultado) {
+  if (resultado && typeof resultado.catch === 'function') resultado.catch(() => {});
+}
+
+function entrarPantallaCompleta() {
+  const doc = document.documentElement;
+  if (document.fullscreenElement) return;
+  if (doc.requestFullscreen) sinErrores(doc.requestFullscreen());
+  else if (doc.webkitRequestFullscreen) doc.webkitRequestFullscreen();
 }
 
 function alternarPantallaCompleta() {
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {});
-  } else if (document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen().catch(() => {});
-  }
+  if (document.fullscreenElement) sinErrores(document.exitFullscreen());
+  else entrarPantallaCompleta();
 }
 
 /** Primer clic o tecla en la TV: habilita el sonido (los navegadores lo exigen) y la pantalla completa. */
@@ -824,9 +844,7 @@ function activarTV() {
   mantenerPantallaEncendida();
   if (!yaActivado) {
     yaActivado = true;
-    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    }
+    entrarPantallaCompleta();
   }
 }
 
@@ -856,25 +874,29 @@ const conexion = (() => {
     const abc = 'abcdefghjkmnpqrstuvwxyz23456789';
     let s = '';
     for (let i = 0; i < 6; i++) s += abc[Math.floor(aleatorio() * abc.length)];
-    try { localStorage.setItem(CLAVE_SALA, s); } catch { /* sin almacenamiento */ }
+    try { localStorage.setItem(CLAVE_SALA, s); } catch (e) { /* sin almacenamiento */ }
     return s;
   }
 
   /** Se reutiliza el código guardado para que el celular se reconecte si se recarga la TV. */
   function codigoGuardado() {
     let s = null;
-    try { s = localStorage.getItem(CLAVE_SALA); } catch { /* sin almacenamiento */ }
+    try { s = localStorage.getItem(CLAVE_SALA); } catch (e) { /* sin almacenamiento */ }
     return s && /^[a-z0-9]{6}$/.test(s) ? s : nuevoCodigo();
   }
 
   function brokerGuardado() {
     let b = 0;
-    try { b = parseInt(localStorage.getItem(CLAVE_BROKER), 10) || 0; } catch { /* sin almacenamiento */ }
+    try { b = parseInt(localStorage.getItem(CLAVE_BROKER), 10) || 0; } catch (e) { /* sin almacenamiento */ }
     return b >= 0 && b < BROKERS.length ? b : 0;
   }
 
+  function esLocal() {
+    return location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  }
+
   function urlControl() {
-    const url = new URL('control.html', location.href);
+    const url = new URL('control.html', esLocal() ? URL_PUBLICA : location.href);
     url.search = '';
     url.hash = '';
     url.searchParams.set('sala', codigo);
@@ -957,7 +979,7 @@ const conexion = (() => {
     fallos = 0;
     if (canal) canal.cerrar();
     broker = (broker + 1) % BROKERS.length;
-    try { localStorage.setItem(CLAVE_BROKER, String(broker)); } catch { /* sin almacenamiento */ }
+    try { localStorage.setItem(CLAVE_BROKER, String(broker)); } catch (e) { /* sin almacenamiento */ }
     pintarQR();
     conectar();
   }
@@ -990,7 +1012,7 @@ const conexion = (() => {
 
   function recibir(texto) {
     let datos;
-    try { datos = JSON.parse(texto); } catch { return; }
+    try { datos = JSON.parse(texto); } catch (e) { return; }
     if (!datos || typeof datos.cliente !== 'string') return;
 
     if (datos.tipo === 'hola') {
@@ -1018,7 +1040,7 @@ const conexion = (() => {
   }
 
   function iniciar() {
-    if (location.protocol === 'file:') el.avisoLocal.hidden = false;
+    if (esLocal()) el.avisoLocal.hidden = false;
     codigo = codigoGuardado();
     broker = brokerGuardado();
     pintarQR();
@@ -1059,6 +1081,7 @@ let esperaRedimension = null;
 window.addEventListener('resize', () => {
   clearTimeout(esperaRedimension);
   esperaRedimension = setTimeout(() => {
+    ajustarTamanioRueda();
     dibujarRueda();
     conexion.pintarQR();
     confeti.ajustar();
@@ -1069,7 +1092,18 @@ window.addEventListener('resize', () => {
    Arranque
    ========================================================= */
 
+/** Las Smart TV viejas no entienden min() en CSS: ahí el tamaño de la rueda se calcula a mano. */
+function ajustarTamanioRueda() {
+  if (window.CSS && CSS.supports && CSS.supports('width', 'min(1px, 2px)')) return;
+  const ancho = window.innerWidth;
+  const alto = window.innerHeight;
+  const lado = ancho <= alto ? Math.min(ancho * 0.92, alto * 0.58) : Math.min(alto * 0.9, ancho * 0.62);
+  document.documentElement.style.setProperty('--rueda', `${lado}px`);
+}
+
 function arrancar() {
+  if (MODO_LIVIANO) document.documentElement.classList.add('liviano');
+  ajustarTamanioRueda();
   document.title = TITULO.replace(/[¡!]/g, '').trim();
   el.titulo.textContent = TITULO;
   el.qrTitulo.textContent = TITULO;
